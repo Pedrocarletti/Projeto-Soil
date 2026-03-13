@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+.turbo
+.pnpm-store
+coverage
+.git-backup
+.env
+.env.local
+*.log
+apps/web/.git
+apps/api/prisma/dev.db

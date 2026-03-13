@@ -1,0 +1,78 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        secrets.DEPLOY_HOST != '' &&
+        secrets.DEPLOY_USER != '' &&
+        secrets.DEPLOY_SSH_KEY != '' &&
+        secrets.DEPLOY_PATH != '' &&
+        secrets.DEPLOY_ENV_FILE != ''
+      }}
+    environment:
+      name: production
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_ENV_FILE: ${{ secrets.DEPLOY_ENV_FILE }}
+      REPOSITORY_URL: https://github.com/${{ github.repository }}.git
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT="${DEPLOY_PORT:-22}"
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload production env
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT="${DEPLOY_PORT:-22}"
+          REMOTE="$DEPLOY_USER@$DEPLOY_HOST"
+
+          ssh -p "$PORT" "$REMOTE" "mkdir -p '$DEPLOY_PATH'"
+          printf '%s' "$DEPLOY_ENV_FILE" | ssh -p "$PORT" "$REMOTE" "cat > '$DEPLOY_PATH/.env'"
+
+      - name: Sync repository and deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT="${DEPLOY_PORT:-22}"
+          REMOTE="$DEPLOY_USER@$DEPLOY_HOST"
+
+          ssh -p "$PORT" "$REMOTE" "
+            set -euo pipefail
+            if [ ! -d '$DEPLOY_PATH/.git' ]; then
+              git clone '$REPOSITORY_URL' '$DEPLOY_PATH'
+            fi
+
+            cd '$DEPLOY_PATH'
+            git fetch --all --prune
+            git checkout --force '${{ github.ref_name }}'
+            git reset --hard '${{ github.sha }}'
+            bash scripts/deploy-prod.sh
+          "

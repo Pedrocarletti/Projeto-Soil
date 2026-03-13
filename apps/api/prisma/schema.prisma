@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum Direction {
+  CLOCKWISE
+  COUNTER_CLOCKWISE
+  STOPPED
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(VIEWER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Farm {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  latitude  Float
+  longitude Float
+  pivots    Pivot[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Pivot {
+  id         String   @id @default(uuid()) @db.Uuid
+  farmId     String   @db.Uuid
+  name       String
+  code       String   @unique
+  latitude   Float
+  longitude  Float
+  status     Json?
+  bladeAt100 Float
+  farm       Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  states     State[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([farmId])
+}
+
+model State {
+  id                     String    @id @default(uuid()) @db.Uuid
+  pivotId                String    @db.Uuid
+  timestamp              DateTime
+  endedAt                DateTime?
+  isOn                   Boolean
+  direction              Direction
+  isIrrigating           Boolean
+  commandedPercentimeter Int?
+  pivot                  Pivot     @relation(fields: [pivotId], references: [id], onDelete: Cascade)
+  cycles                 Cycle[]
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([pivotId, timestamp(sort: Desc)])
+  @@index([pivotId, endedAt])
+}
+
+model Cycle {
+  id            String   @id @default(uuid()) @db.Uuid
+  stateId        String   @db.Uuid
+  timestamp      DateTime
+  angle          Float
+  percentimeter  Float
+  appliedBlade   Float
+  state          State    @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+
+  @@index([stateId, timestamp(sort: Desc)])
+}
