@@ -33,7 +33,13 @@ export function useRealtimePivots({
       return;
     }
 
-    const socket = io(getWsUrl(), {
+    const wsUrl = getWsUrl();
+
+    if (!wsUrl) {
+      return;
+    }
+
+    const socket = io(wsUrl, {
       transports: ['websocket'],
       auth: { token },
       query: pivotId ? { pivotId } : undefined,

@@ -7,6 +7,7 @@ coverage
 .git-backup
 .env
 .env.local
+.vercel
 *.log
 apps/web/.git
 apps/api/prisma/dev.db

@@ -6,8 +6,14 @@ import type {
   WeatherResponse,
 } from '@/types/domain';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://api.localhost/api';
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'http://api.localhost/realtime';
+const LOCAL_API_URL = 'http://localhost:33001/api';
+const LOCAL_WS_URL = 'http://localhost:33001/realtime';
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === 'development' ? LOCAL_API_URL : '');
+const WS_URL =
+  process.env.NEXT_PUBLIC_WS_URL ??
+  (process.env.NODE_ENV === 'development' ? LOCAL_WS_URL : '');
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -16,7 +22,18 @@ export class ApiError extends Error {
 }
 
 export function getWsUrl() {
-  return WS_URL;
+  return WS_URL || null;
+}
+
+function getApiUrl() {
+  if (API_URL) {
+    return API_URL;
+  }
+
+  throw new ApiError(
+    'NEXT_PUBLIC_API_URL nao configurada para este deploy.',
+    500,
+  );
 }
 
 async function parseResponse<T>(response: Response) {
@@ -48,7 +65,7 @@ export async function apiFetch<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${getApiUrl()}${path}`, {
     ...options,
     headers,
     cache: 'no-store',

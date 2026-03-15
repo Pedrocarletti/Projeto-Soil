@@ -120,6 +120,19 @@ Preencha antes no `.env`:
 
 Guia completo: `docs/deploy-vps.md`
 
+## Frontend na Vercel
+
+Para publicar o frontend na Vercel:
+
+- importe o repositorio normalmente
+- configure `Root Directory` como `apps/web`
+- configure `NEXT_PUBLIC_API_URL`
+- configure `NEXT_PUBLIC_WS_URL`
+
+Use `apps/web/.env.vercel.example` como base.
+
+Guia completo: `docs/deploy-vercel.md`
+
 ## CI/CD
 
 O projeto agora inclui dois workflows em GitHub Actions:
