@@ -125,6 +125,9 @@ Guia completo: `docs/deploy-vps.md`
 Se voce for usar Vercel no frontend e deixar somente a API na Oracle, use o
 compose `docker-compose.api.prod.yml`.
 
+Esse compose usa `Caddy` para HTTPS automatico no dominio da API e evita a
+dependencia do provider Docker do Traefik.
+
 Passo rapido:
 
 ```bash

@@ -7,7 +7,7 @@ API na Oracle Cloud.
 
 O arquivo `docker-compose.api.prod.yml` sobe:
 
-- Traefik com HTTPS automatico
+- Caddy com HTTPS automatico
 - API NestJS
 - PostgreSQL
 - Redis
