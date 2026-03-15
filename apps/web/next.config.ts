@@ -1,9 +1,10 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
   turbopack: {
-    root: process.cwd(),
+    root: path.resolve(process.cwd(), "..", ".."),
   },
 };
 

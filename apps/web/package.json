@@ -2,15 +2,6 @@
   "name": "web",
   "version": "0.1.0",
   "private": true,
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@next/swc",
-      "@tailwindcss/oxide",
-      "esbuild",
-      "sharp",
-      "unrs-resolver"
-    ]
-  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

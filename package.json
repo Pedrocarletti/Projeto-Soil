@@ -2,10 +2,24 @@
   "name": "projeto-soil",
   "private": true,
   "packageManager": "pnpm@10.12.4",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@next/swc",
+      "@prisma/client",
+      "@prisma/engines",
+      "@tailwindcss/oxide",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ]
+  },
   "scripts": {
-    "build:web": "pnpm --filter web build",
-    "build:api": "pnpm --filter api build",
-    "lint:web": "pnpm --filter web lint",
-    "lint:api": "pnpm --filter api lint"
+    "build:web": "cd apps/web && pnpm build",
+    "build:api": "cd apps/api && pnpm prisma generate && pnpm build",
+    "lint:web": "cd apps/web && pnpm lint",
+    "lint:api": "cd apps/api && pnpm lint"
   }
 }
