@@ -9,4 +9,11 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+COMPOSE_FILE="${DEPLOY_COMPOSE_FILE:-docker-compose.prod.yml}"
+
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+  echo "Missing compose file $COMPOSE_FILE in $ROOT_DIR" >&2
+  exit 1
+fi
+
+docker compose -f "$COMPOSE_FILE" up -d --build --remove-orphans

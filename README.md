@@ -120,6 +120,30 @@ Preencha antes no `.env`:
 
 Guia completo: `docs/deploy-vps.md`
 
+## API na Oracle + frontend na Vercel
+
+Se voce for usar Vercel no frontend e deixar somente a API na Oracle, use o
+compose `docker-compose.api.prod.yml`.
+
+Passo rapido:
+
+```bash
+cp .env.api.example .env
+docker compose -f docker-compose.api.prod.yml up -d --build
+```
+
+Preencha antes no `.env`:
+
+- `API_DOMAIN`
+- `FRONTEND_URL`
+- `ACME_EMAIL`
+- `POSTGRES_PASSWORD`
+- `JWT_SECRET`
+- `SEED_ADMIN_EMAIL`
+- `SEED_ADMIN_PASSWORD`
+
+Guia completo: `docs/deploy-oracle-vercel.md`
+
 ## Frontend na Vercel
 
 Para publicar o frontend na Vercel:
@@ -150,6 +174,7 @@ Para habilitar o deploy automatico, configure estes secrets no repositorio:
 - `DEPLOY_SSH_KEY`
 - `DEPLOY_PATH`
 - `DEPLOY_ENV_FILE`
+- `DEPLOY_COMPOSE_FILE` (opcional, por exemplo `docker-compose.api.prod.yml`)
 
 `DEPLOY_ENV_FILE` deve conter o conteudo completo do `.env` de producao.
 

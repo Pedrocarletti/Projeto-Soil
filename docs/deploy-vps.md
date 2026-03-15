@@ -7,6 +7,9 @@ Este projeto pode ser publicado em uma VPS Linux com Docker usando o arquivo
 - API em `https://api.soil.seudominio.com`
 - HTTPS automatico via Traefik + Let's Encrypt
 
+Se o frontend ficar na Vercel e voce quiser subir somente a API na VPS, use
+`docker-compose.api.prod.yml` e siga `docs/deploy-oracle-vercel.md`.
+
 ## 1. Requisitos
 
 - Uma VPS Linux com Docker e Docker Compose instalados
@@ -80,6 +83,8 @@ secrets no GitHub:
 - `DEPLOY_PATH`: pasta onde o projeto ficara na VPS, por exemplo
   `/opt/projeto-soil`
 - `DEPLOY_ENV_FILE`: conteudo completo do arquivo `.env` de producao
+- `DEPLOY_COMPOSE_FILE`: opcional, permite usar um compose alternativo como
+  `docker-compose.api.prod.yml`
 
 Com esses secrets configurados, cada push em `main` executa:
 

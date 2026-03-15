@@ -104,3 +104,14 @@ jobs:
           SEED_ADMIN_EMAIL: admin@example.com
           SEED_ADMIN_PASSWORD: AnotherStrong123
         run: docker compose -f docker-compose.prod.yml config
+
+      - name: Validate api-only production compose
+        env:
+          API_DOMAIN: api.soil.example.com
+          FRONTEND_URL: https://soil.vercel.app
+          ACME_EMAIL: ci@example.com
+          POSTGRES_PASSWORD: StrongPassword123
+          JWT_SECRET: supersecret12345678901234567890
+          SEED_ADMIN_EMAIL: admin@example.com
+          SEED_ADMIN_PASSWORD: AnotherStrong123
+        run: docker compose -f docker-compose.api.prod.yml config
