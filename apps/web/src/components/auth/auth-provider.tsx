@@ -8,7 +8,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { getProfile, loginRequest } from '@/lib/api';
+import { ApiError, getProfile, loginRequest } from '@/lib/api';
 import type { User } from '@/types/domain';
 
 const STORAGE_KEY = 'soil.session';
@@ -43,16 +43,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const parsedSession = JSON.parse(rawSession) as SessionState;
-        const profile = await getProfile(parsedSession.token);
+
+        if (
+          typeof parsedSession?.token !== 'string' ||
+          !parsedSession.user
+        ) {
+          throw new Error('Sessao invalida.');
+        }
+
         startTransition(() => {
-          setSession({
-            token: parsedSession.token,
-            user: profile,
-          });
+          setSession(parsedSession);
         });
-      } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } finally {
+        setIsReady(true);
+
+        const profile = await getProfile(parsedSession.token);
+        const nextSession = {
+          token: parsedSession.token,
+          user: profile,
+        };
+
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSession));
+        startTransition(() => {
+          setSession(nextSession);
+        });
+      } catch (error) {
+        const isApiAuthError =
+          error instanceof ApiError &&
+          (error.status === 401 || error.status === 403);
+
+        if (!(error instanceof ApiError) || isApiAuthError) {
+          window.localStorage.removeItem(STORAGE_KEY);
+          startTransition(() => {
+            setSession(null);
+          });
+        }
+
         setIsReady(true);
       }
     }

@@ -647,10 +647,10 @@ function FarmCatalogView({
             type="button"
             onClick={onStartCreateFarm}
             className="rounded-full px-5"
-            variant={isEditing ? 'secondary' : 'primary'}
+            variant="primary"
           >
             <Plus size={16} className="mr-2" />
-            {isEditing ? 'Nova fazenda' : 'Nova fazenda'}
+            {isEditing ? 'Voltar para cadastro' : 'Cadastrar nova fazenda'}
           </Button>
         ) : null}
       </div>
@@ -699,7 +699,7 @@ function FarmCatalogView({
             <div className="mt-5 flex flex-wrap items-center gap-2">
               <Link
                 href={buildDashboardHref('pivots', farm.id)}
-                className="inline-flex rounded-full bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2a9348] shadow-[0_10px_18px_rgba(17,61,30,0.12)]"
+                className="inline-flex rounded-full bg-[#edf7df] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#215b30] shadow-[0_10px_18px_rgba(17,61,30,0.12)] transition hover:bg-white"
               >
                 Abrir fazenda
               </Link>
@@ -709,10 +709,15 @@ function FarmCatalogView({
                   <button
                     type="button"
                     onClick={() => onStartEditFarm(farm)}
-                    className="inline-flex items-center rounded-full bg-white/16 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/24"
+                    className={cn(
+                      'inline-flex items-center rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white transition',
+                      editingFarmId === farm.id
+                        ? 'bg-white/28'
+                        : 'bg-white/16 hover:bg-white/24',
+                    )}
                   >
                     <Pencil size={14} className="mr-2" />
-                    Editar
+                    {editingFarmId === farm.id ? 'Editando' : 'Editar'}
                   </button>
                   <button
                     type="button"
@@ -760,13 +765,18 @@ function FarmEditorCard({
           <h3 className="mt-2 text-2xl font-semibold text-[#22311d]">
             {isEditing ? 'Atualize os dados da fazenda' : 'Cadastre uma nova fazenda'}
           </h3>
+          <p className="mt-2 text-sm leading-6 text-[#5e6d54]">
+            {isEditing
+              ? 'Depois de salvar ou cancelar, o formulario volta automaticamente para o modo de cadastro.'
+              : 'Preencha os dados abaixo para cadastrar uma nova fazenda no painel.'}
+          </p>
         </div>
 
         {isEditing ? (
           <button
             type="button"
             onClick={onCancelFarmEditing}
-            className="rounded-full bg-[#eef2e3] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#66755d]"
+            className="rounded-full bg-[#eef2e3] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#66755d] transition hover:bg-[#e2e9d2]"
           >
             Cancelar edicao
           </button>
@@ -844,8 +854,8 @@ function FarmEditorCard({
               ? 'Salvando...'
               : 'Criando...'
             : isEditing
-              ? 'Salvar'
-              : 'Adicionar'}
+              ? 'Atualizar fazenda'
+              : 'Cadastrar fazenda'}
         </Button>
       </form>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LockKeyhole, UserRound } from 'lucide-react';
 import { SoilMark } from '@/components/layout/mobile-app-shell';
@@ -15,12 +15,40 @@ export default function LoginPage() {
   const hasDemoCredentials = Boolean(demoEmail && demoPassword);
   const { login } = useAuth();
   const router = useRouter();
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState(demoEmail);
   const [password, setPassword] = useState(demoPassword);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const canSubmit = Boolean(email.trim() && password.trim());
+
+  useEffect(() => {
+    function syncAutofilledValues() {
+      const nextEmail = emailInputRef.current?.value ?? '';
+      const nextPassword = passwordInputRef.current?.value ?? '';
+
+      setEmail((currentEmail) =>
+        currentEmail !== nextEmail ? nextEmail : currentEmail,
+      );
+      setPassword((currentPassword) =>
+        currentPassword !== nextPassword ? nextPassword : currentPassword,
+      );
+    }
+
+    syncAutofilledValues();
+
+    const animationFrameId = window.requestAnimationFrame(syncAutofilledValues);
+    const firstTimeoutId = window.setTimeout(syncAutofilledValues, 120);
+    const secondTimeoutId = window.setTimeout(syncAutofilledValues, 450);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.clearTimeout(firstTimeoutId);
+      window.clearTimeout(secondTimeoutId);
+    };
+  }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,11 +135,15 @@ export default function LoginPage() {
                   strokeWidth={2.1}
                 />
                 <Input
+                  ref={emailInputRef}
                   id="login-email"
                   type="email"
                   autoComplete="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
+                  onInput={(event) =>
+                    setEmail((event.target as HTMLInputElement).value)
+                  }
                   className="h-14 rounded-full border-white/70 bg-white/92 pl-13 pr-5 text-[15px] text-[#4b5360] shadow-[0_16px_34px_rgba(204,210,219,0.42)] placeholder:text-[#b4bcc8] focus:border-[#c8d874] focus:ring-[#d9e694]/40"
                   placeholder="Usuario"
                 />
@@ -127,11 +159,15 @@ export default function LoginPage() {
                   strokeWidth={2.1}
                 />
                 <Input
+                  ref={passwordInputRef}
                   id="login-password"
                   type="password"
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
+                  onInput={(event) =>
+                    setPassword((event.target as HTMLInputElement).value)
+                  }
                   className="h-14 rounded-full border-white/70 bg-white/92 pl-13 pr-5 text-[15px] text-[#4b5360] shadow-[0_16px_34px_rgba(204,210,219,0.42)] placeholder:text-[#b4bcc8] focus:border-[#c8d874] focus:ring-[#d9e694]/40"
                   placeholder="Senha"
                 />
