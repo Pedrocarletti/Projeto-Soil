@@ -1,4 +1,5 @@
 import type {
+  FarmRecord,
   LoginResponse,
   Pivot,
   PivotState,
@@ -89,6 +90,57 @@ export async function getProfile(token: string) {
   return apiFetch<User>('/auth/me', {}, token);
 }
 
+export async function getFarms(token: string) {
+  return apiFetch<FarmRecord[]>('/farms', {}, token);
+}
+
+export async function createFarm(
+  token: string,
+  payload: {
+    name: string;
+    latitude: number;
+    longitude: number;
+  },
+) {
+  return apiFetch<FarmRecord>(
+    '/farms',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function updateFarm(
+  id: string,
+  token: string,
+  payload: {
+    name: string;
+    latitude: number;
+    longitude: number;
+  },
+) {
+  return apiFetch<FarmRecord>(
+    `/farms/${id}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function deleteFarm(id: string, token: string) {
+  return apiFetch<{ deleted: boolean }>(
+    `/farms/${id}`,
+    {
+      method: 'DELETE',
+    },
+    token,
+  );
+}
+
 export async function getPivots(token: string) {
   return apiFetch<Pivot[]>('/pivots', {}, token);
 }
@@ -99,6 +151,47 @@ export async function getPivot(id: string, token: string) {
 
 export async function getPivotHistory(id: string, token: string) {
   return apiFetch<PivotState[]>(`/pivots/${id}/history`, {}, token);
+}
+
+export async function getPivotHistoryFiltered(
+  id: string,
+  token: string,
+  filters: {
+    startAt?: string;
+    endAt?: string;
+    isOn?: boolean;
+    isIrrigating?: boolean;
+    limit?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+
+  if (filters.startAt) {
+    params.set('startAt', filters.startAt);
+  }
+
+  if (filters.endAt) {
+    params.set('endAt', filters.endAt);
+  }
+
+  if (typeof filters.isOn === 'boolean') {
+    params.set('isOn', String(filters.isOn));
+  }
+
+  if (typeof filters.isIrrigating === 'boolean') {
+    params.set('isIrrigating', String(filters.isIrrigating));
+  }
+
+  if (typeof filters.limit === 'number') {
+    params.set('limit', String(filters.limit));
+  }
+
+  const search = params.toString();
+  const path = search
+    ? `/pivots/${id}/history?${search}`
+    : `/pivots/${id}/history`;
+
+  return apiFetch<PivotState[]>(path, {}, token);
 }
 
 export async function controlPivot(

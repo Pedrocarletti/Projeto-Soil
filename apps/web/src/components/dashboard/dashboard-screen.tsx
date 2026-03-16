@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
+  CalendarDays,
   Clock3,
   CloudSun,
   Droplets,
@@ -12,10 +13,13 @@ import {
   House,
   LogOut,
   MapPinned,
+  Pencil,
+  Plus,
   RotateCcw,
   RotateCw,
   Search,
   Sprout,
+  Trash2,
   Waves,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -24,15 +28,30 @@ import { RequireAuth } from '@/components/auth/require-auth';
 import { HistoryChart } from '@/components/pivots/history-chart';
 import { PivotWheel } from '@/components/pivots/pivot-wheel';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { WeatherCard } from '@/components/weather/weather-card';
-import { getPivotHistory, getPivots, getWeather } from '@/lib/api';
+import {
+  createFarm,
+  deleteFarm,
+  getFarms,
+  getPivotHistoryFiltered,
+  getPivots,
+  getWeather,
+  updateFarm,
+} from '@/lib/api';
 import { cn, formatDate, formatNumber } from '@/lib/utils';
 import { useRealtimePivots } from '@/hooks/use-realtime-pivots';
-import type { Pivot, PivotState, WeatherResponse } from '@/types/domain';
+import type {
+  Farm,
+  FarmRecord,
+  Pivot,
+  PivotState,
+  WeatherResponse,
+} from '@/types/domain';
 
-type DashboardTab = 'pivots' | 'mapa' | 'historico';
+type DashboardTab = 'fazendas' | 'pivots' | 'mapa' | 'historico';
 
 interface DashboardNavItem {
   label: string;
@@ -42,22 +61,62 @@ interface DashboardNavItem {
   disabled?: boolean;
 }
 
+type HistoryStatusFilter = 'all' | 'on' | 'off';
+type HistoryModeFilter = 'all' | 'water' | 'movement';
+type HistoryPeriodPreset = 'custom' | '24h' | '7d' | '30d';
+
+interface HistoryFiltersForm {
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+  status: HistoryStatusFilter;
+  mode: HistoryModeFilter;
+  periodPreset: HistoryPeriodPreset;
+}
+
+interface FarmFormValues {
+  name: string;
+  latitude: string;
+  longitude: string;
+}
+
 export function DashboardScreen({
   initialTab = 'pivots',
+  initialFarmId,
 }: {
   initialTab?: DashboardTab;
+  initialFarmId?: string;
 }) {
-  const { token, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const currentTab = initialTab;
+  const currentFarmId = initialFarmId ?? null;
+  const [farms, setFarms] = useState<FarmRecord[]>([]);
   const [pivots, setPivots] = useState<Pivot[]>([]);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [farmError, setFarmError] = useState<string | null>(null);
+  const [farmForm, setFarmForm] = useState<FarmFormValues>(() => createEmptyFarmForm());
+  const [editingFarmId, setEditingFarmId] = useState<string | null>(null);
+  const [isSavingFarm, setIsSavingFarm] = useState(false);
+  const [isDeletingFarmId, setIsDeletingFarmId] = useState<string | null>(null);
   const [mapPivotId, setMapPivotId] = useState<string | null>(null);
   const [historyPivotId, setHistoryPivotId] = useState<string | null>(null);
   const [historyStates, setHistoryStates] = useState<PivotState[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyFiltersDraft, setHistoryFiltersDraft] = useState<HistoryFiltersForm>(
+    () => createEmptyHistoryFilters(),
+  );
+  const [appliedHistoryFilters, setAppliedHistoryFilters] =
+    useState<HistoryFiltersForm>(() => createEmptyHistoryFilters());
   const deferredSearch = useDeferredValue(search);
+  const canManageFarms =
+    user?.role === 'ADMIN' || user?.role === 'OPERATOR';
+
+  useEffect(() => {
+    setSearch('');
+  }, [currentFarmId, currentTab]);
 
   useEffect(() => {
     if (!token) {
@@ -72,16 +131,24 @@ export function DashboardScreen({
       }
 
       try {
-        const pivotsResponse = await getPivots(authToken);
-        setPivots(pivotsResponse);
-        setMapPivotId((current) => current ?? pivotsResponse[0]?.id ?? null);
-        setHistoryPivotId((current) => current ?? pivotsResponse[0]?.id ?? null);
+        const [farmsResponse, pivotsResponse] = await Promise.all([
+          getFarms(authToken),
+          getPivots(authToken),
+        ]);
+        const nextFarmPivots = currentFarmId
+          ? pivotsResponse.filter((pivot) => pivot.farmId === currentFarmId)
+          : pivotsResponse;
+        const firstRelevantPivot = nextFarmPivots[0] ?? pivotsResponse[0];
 
-        const firstPivot = pivotsResponse[0];
-        if (firstPivot) {
+        setFarms(sortFarmRecords(farmsResponse));
+        setPivots(pivotsResponse);
+        setMapPivotId((current) => current ?? firstRelevantPivot?.id ?? null);
+        setHistoryPivotId((current) => current ?? firstRelevantPivot?.id ?? null);
+
+        if (firstRelevantPivot) {
           const weatherResponse = await getWeather(
-            firstPivot.latitude,
-            firstPivot.longitude,
+            firstRelevantPivot.latitude,
+            firstRelevantPivot.longitude,
             authToken,
           );
           setWeather(weatherResponse);
@@ -92,24 +159,181 @@ export function DashboardScreen({
     }
 
     void loadDashboard();
-  }, [token]);
+  }, [currentFarmId, token]);
 
-  useEffect(() => {
-    if (!pivots.length) {
+  const farmScopedPivots = useMemo(
+    () =>
+      currentFarmId
+        ? pivots.filter((pivot) => pivot.farmId === currentFarmId)
+        : pivots,
+    [currentFarmId, pivots],
+  );
+
+  const selectedFarm =
+    farms.find((farm) => farm.id === currentFarmId) ?? null;
+
+  const hasActiveHistoryFilters = useMemo(
+    () => historyFiltersAreActive(appliedHistoryFilters),
+    [appliedHistoryFilters],
+  );
+
+  function updateHistoryFiltersDraft(patch: Partial<HistoryFiltersForm>) {
+    setHistoryFiltersDraft((current) => ({
+      ...current,
+      ...patch,
+    }));
+  }
+
+  function applyHistoryFilters(filters = historyFiltersDraft) {
+    const validationError = validateHistoryFilters(filters);
+
+    if (validationError) {
+      setHistoryError(validationError);
       return;
     }
 
-    if (!mapPivotId || !pivots.some((pivot) => pivot.id === mapPivotId)) {
-      setMapPivotId(pivots[0]?.id ?? null);
+    setHistoryError(null);
+    setAppliedHistoryFilters(filters);
+  }
+
+  function clearHistoryFilters() {
+    const emptyFilters = createEmptyHistoryFilters();
+    setHistoryError(null);
+    setHistoryFiltersDraft(emptyFilters);
+    setAppliedHistoryFilters(emptyFilters);
+  }
+
+  function applyHistoryPeriodPreset(preset: Exclude<HistoryPeriodPreset, 'custom'>) {
+    const presetFilters = createHistoryPresetFilters(
+      preset,
+      historyFiltersDraft,
+    );
+
+    setHistoryError(null);
+    setHistoryFiltersDraft(presetFilters);
+    setAppliedHistoryFilters(presetFilters);
+  }
+
+  function updateFarmForm(patch: Partial<FarmFormValues>) {
+    setFarmForm((current) => ({
+      ...current,
+      ...patch,
+    }));
+  }
+
+  function startCreateFarm() {
+    setFarmError(null);
+    setEditingFarmId(null);
+    setFarmForm(createEmptyFarmForm());
+  }
+
+  function startEditFarm(farm: FarmRecord) {
+    setFarmError(null);
+    setEditingFarmId(farm.id);
+    setFarmForm({
+      name: farm.name,
+      latitude: String(farm.latitude),
+      longitude: String(farm.longitude),
+    });
+  }
+
+  function cancelFarmEditing() {
+    setFarmError(null);
+    setEditingFarmId(null);
+    setFarmForm(createEmptyFarmForm());
+  }
+
+  async function submitFarmForm() {
+    if (!token) {
+      return;
+    }
+
+    const payload = parseFarmForm(farmForm);
+
+    if (!payload) {
+      setFarmError(
+        'Preencha nome, latitude e longitude com valores numericos validos.',
+      );
+      return;
+    }
+
+    try {
+      setIsSavingFarm(true);
+      setFarmError(null);
+
+      const savedFarm = editingFarmId
+        ? await updateFarm(editingFarmId, token, payload)
+        : await createFarm(token, payload);
+
+      setFarms((currentFarms) =>
+        sortFarmRecords(
+          editingFarmId
+            ? currentFarms.map((farm) =>
+                farm.id === editingFarmId ? savedFarm : farm,
+              )
+            : [...currentFarms, savedFarm],
+        ),
+      );
+      setEditingFarmId(null);
+      setFarmForm(createEmptyFarmForm());
+    } catch (saveError) {
+      setFarmError((saveError as Error).message);
+    } finally {
+      setIsSavingFarm(false);
+    }
+  }
+
+  async function handleDeleteFarm(farm: FarmRecord) {
+    if (!token) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Excluir a fazenda "${farm.name}"? Essa acao nao pode ser desfeita.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsDeletingFarmId(farm.id);
+      setFarmError(null);
+      await deleteFarm(farm.id, token);
+      setFarms((currentFarms) =>
+        currentFarms.filter((currentFarm) => currentFarm.id !== farm.id),
+      );
+
+      if (editingFarmId === farm.id) {
+        setEditingFarmId(null);
+        setFarmForm(createEmptyFarmForm());
+      }
+    } catch (deleteError) {
+      setFarmError((deleteError as Error).message);
+    } finally {
+      setIsDeletingFarmId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!farmScopedPivots.length) {
+      return;
+    }
+
+    if (
+      !mapPivotId ||
+      !farmScopedPivots.some((pivot) => pivot.id === mapPivotId)
+    ) {
+      setMapPivotId(farmScopedPivots[0]?.id ?? null);
     }
 
     if (
       !historyPivotId ||
-      !pivots.some((pivot) => pivot.id === historyPivotId)
+      !farmScopedPivots.some((pivot) => pivot.id === historyPivotId)
     ) {
-      setHistoryPivotId(pivots[0]?.id ?? null);
+      setHistoryPivotId(farmScopedPivots[0]?.id ?? null);
     }
-  }, [historyPivotId, mapPivotId, pivots]);
+  }, [farmScopedPivots, historyPivotId, mapPivotId]);
 
   useEffect(() => {
     if (currentTab !== 'historico') {
@@ -130,9 +354,10 @@ export function DashboardScreen({
 
     async function loadHistory() {
       try {
-        const response = await getPivotHistory(
+        const response = await getPivotHistoryFiltered(
           selectedHistoryPivotId!,
           authToken!,
+          buildHistoryApiFilters(appliedHistoryFilters),
         );
         if (!cancelled) {
           setHistoryStates(response);
@@ -150,7 +375,7 @@ export function DashboardScreen({
     return () => {
       cancelled = true;
     };
-  }, [currentTab, historyPivotId, token]);
+  }, [appliedHistoryFilters, currentTab, historyPivotId, token]);
 
   useRealtimePivots({
     enabled: Boolean(token),
@@ -170,35 +395,53 @@ export function DashboardScreen({
     const query = deferredSearch.trim().toLowerCase();
 
     if (!query) {
-      return pivots;
+      return farmScopedPivots;
     }
 
-    return pivots.filter((pivot) =>
+    return farmScopedPivots.filter((pivot) =>
       `${pivot.name} ${pivot.farm.name} ${pivot.code}`
         .toLowerCase()
         .includes(query),
     );
-  }, [deferredSearch, pivots]);
-
-  const irrigatingCount = useMemo(
-    () => pivots.filter((pivot) => pivot.live.isIrrigating).length,
-    [pivots],
-  );
+  }, [deferredSearch, farmScopedPivots]);
 
   const mapPivot =
-    pivots.find((pivot) => pivot.id === mapPivotId) ?? pivots[0] ?? null;
+    farmScopedPivots.find((pivot) => pivot.id === mapPivotId) ??
+    farmScopedPivots[0] ??
+    null;
 
   const historyPivot =
-    pivots.find((pivot) => pivot.id === historyPivotId) ?? pivots[0] ?? null;
+    farmScopedPivots.find((pivot) => pivot.id === historyPivotId) ??
+    farmScopedPivots[0] ??
+    null;
 
-  const historyPivotView = historyPivot
-    ? {
-        ...historyPivot,
-        states: historyStates.length ? historyStates : historyPivot.states,
-      }
-    : null;
+  const historyPivotView = useMemo(
+    () =>
+      historyPivot
+        ? {
+            ...historyPivot,
+            states: historyStates.length ? historyStates : historyPivot.states,
+          }
+        : null,
+    [historyPivot, historyStates],
+  );
 
-  const navItems = getDashboardNavItems(currentTab);
+  const filteredHistoryCycleCount = useMemo(
+    () =>
+      historyPivotView?.states.reduce(
+        (totalCycles, state) => totalCycles + state.cycles.length,
+        0,
+      ) ?? 0,
+    [historyPivotView],
+  );
+
+  const filteredHistoryWaterCount = useMemo(
+    () =>
+      historyPivotView?.states.filter((state) => state.isIrrigating).length ?? 0,
+    [historyPivotView],
+  );
+
+  const navItems = getDashboardNavItems(currentTab, currentFarmId);
 
   return (
     <RequireAuth>
@@ -218,8 +461,27 @@ export function DashboardScreen({
                 </p>
               ) : null}
 
+              {currentTab === 'fazendas' ? (
+                <FarmCatalogView
+                  farms={farms}
+                  canManage={canManageFarms}
+                  farmForm={farmForm}
+                  farmError={farmError}
+                  editingFarmId={editingFarmId}
+                  isSavingFarm={isSavingFarm}
+                  isDeletingFarmId={isDeletingFarmId}
+                  onFarmFormChange={updateFarmForm}
+                  onStartCreateFarm={startCreateFarm}
+                  onStartEditFarm={startEditFarm}
+                  onCancelFarmEditing={cancelFarmEditing}
+                  onSubmitFarm={submitFarmForm}
+                  onDeleteFarm={handleDeleteFarm}
+                />
+              ) : null}
+
               {currentTab === 'pivots' ? (
                 <PivotCatalogView
+                  selectedFarm={selectedFarm}
                   pivots={filteredPivots}
                   search={search}
                   onSearchChange={setSearch}
@@ -227,34 +489,53 @@ export function DashboardScreen({
               ) : null}
 
               {currentTab === 'mapa' ? (
-                pivots.length > 0 ? (
+                farmScopedPivots.length > 0 ? (
                   <div className="mt-6">
                     <DashboardMapView
-                      pivots={pivots}
+                      pivots={farmScopedPivots}
                       selectedPivotId={mapPivot?.id ?? null}
                       onSelect={setMapPivotId}
                       weather={weather}
                     />
                   </div>
                 ) : (
-                  <EmptyDashboardState message="Nenhum pivo encontrado para exibir no mapa." />
+                  <EmptyDashboardState
+                    message={
+                      selectedFarm
+                        ? `Nenhum pivo encontrado para exibir no mapa da fazenda ${selectedFarm.name}.`
+                        : 'Nenhum pivo encontrado para exibir no mapa.'
+                    }
+                  />
                 )
               ) : null}
 
               {currentTab === 'historico' ? (
-                pivots.length > 0 ? (
+                farmScopedPivots.length > 0 ? (
                   <div className="mt-6">
                     <DashboardHistoryView
-                      pivots={pivots}
+                      pivots={farmScopedPivots}
                       selectedPivotId={historyPivot?.id ?? null}
                       onSelect={setHistoryPivotId}
                       pivot={historyPivotView}
                       error={historyError}
-                      irrigatingCount={irrigatingCount}
+                      filters={historyFiltersDraft}
+                      hasActiveFilters={hasActiveHistoryFilters}
+                      onFiltersChange={updateHistoryFiltersDraft}
+                      onApplyFilters={applyHistoryFilters}
+                      onClearFilters={clearHistoryFilters}
+                      onApplyPeriodPreset={applyHistoryPeriodPreset}
+                      cycleCount={filteredHistoryCycleCount}
+                      waterStateCount={filteredHistoryWaterCount}
                     />
                   </div>
                 ) : (
-                  <EmptyDashboardState message="Nenhum pivo encontrado para exibir no historico." />
+                  <EmptyDashboardState
+                    message={
+                      selectedFarm
+                        ? `Nenhum pivo encontrado para exibir no historico da fazenda ${selectedFarm.name}.`
+                        : 'Nenhum pivo encontrado para exibir no historico.'
+                    }
+                  />
                 )
               ) : null}
             </div>
@@ -265,17 +546,317 @@ export function DashboardScreen({
   );
 }
 
+function FarmCatalogView({
+  farms,
+  canManage,
+  farmForm,
+  farmError,
+  editingFarmId,
+  isSavingFarm,
+  isDeletingFarmId,
+  onFarmFormChange,
+  onStartCreateFarm,
+  onStartEditFarm,
+  onCancelFarmEditing,
+  onSubmitFarm,
+  onDeleteFarm,
+}: {
+  farms: FarmRecord[];
+  canManage: boolean;
+  farmForm: FarmFormValues;
+  farmError: string | null;
+  editingFarmId: string | null;
+  isSavingFarm: boolean;
+  isDeletingFarmId: string | null;
+  onFarmFormChange: (patch: Partial<FarmFormValues>) => void;
+  onStartCreateFarm: () => void;
+  onStartEditFarm: (farm: FarmRecord) => void;
+  onCancelFarmEditing: () => void;
+  onSubmitFarm: () => Promise<void>;
+  onDeleteFarm: (farm: FarmRecord) => Promise<void>;
+}) {
+  const isEditing = Boolean(editingFarmId);
+
+  if (farms.length === 0) {
+    return (
+      <section className="space-y-4">
+        {canManage ? (
+          <FarmEditorCard
+            farmForm={farmForm}
+            farmError={farmError}
+            isSavingFarm={isSavingFarm}
+            isEditing={isEditing}
+            onFarmFormChange={onFarmFormChange}
+            onCancelFarmEditing={onCancelFarmEditing}
+            onSubmitFarm={onSubmitFarm}
+          />
+        ) : null}
+
+        <EmptyDashboardState message="Nenhuma fazenda encontrada para o ambiente atual." />
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-2 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-4 rounded-[26px] bg-[#eef2de] px-5 py-5 shadow-[0_16px_30px_rgba(122,136,84,0.08)]">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6f7e60]">
+            Operacao de fazendas
+          </p>
+          <h2 className="mt-2 text-[28px] font-semibold text-[#22311d]">
+            Cadastro e selecao de fazendas
+          </h2>
+          <p className="mt-2 max-w-[720px] text-sm leading-6 text-[#5e6d54]">
+            Cadastre novas fazendas, ajuste coordenadas e selecione o destino para
+            abrir os pivots, o mapa e o historico da area escolhida.
+          </p>
+        </div>
+
+        {canManage ? (
+          <Button
+            type="button"
+            onClick={onStartCreateFarm}
+            className="rounded-full px-5"
+            variant={isEditing ? 'secondary' : 'primary'}
+          >
+            <Plus size={16} className="mr-2" />
+            {isEditing ? 'Nova fazenda' : 'Nova fazenda'}
+          </Button>
+        ) : null}
+      </div>
+
+      {canManage ? (
+        <FarmEditorCard
+          farmForm={farmForm}
+          farmError={farmError}
+          isSavingFarm={isSavingFarm}
+          isEditing={isEditing}
+          onFarmFormChange={onFarmFormChange}
+          onCancelFarmEditing={onCancelFarmEditing}
+          onSubmitFarm={onSubmitFarm}
+        />
+      ) : farmError ? (
+        <p className="rounded-[18px] bg-[#fff1f1] px-4 py-3 text-sm text-[#b33c3c]">
+          {farmError}
+        </p>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {farms.map((farm) => (
+          <article
+            key={farm.id}
+            className="rounded-[20px] bg-[#259640] px-5 py-5 text-white shadow-[0_16px_32px_rgba(35,120,56,0.24)]"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/72">
+                  Fazenda
+                </p>
+                <h3 className="mt-2 truncate text-[24px] font-semibold leading-none">
+                  {farm.name}
+                </h3>
+              </div>
+
+              <span className="rounded-full bg-white/18 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/90">
+                {farm.pivots.length} pivos
+              </span>
+            </div>
+
+            <p className="mt-4 text-base font-medium leading-7 text-white/94">
+              Localizacao: {getFarmLocationLabel(farm)}
+            </p>
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <Link
+                href={buildDashboardHref('pivots', farm.id)}
+                className="inline-flex rounded-full bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2a9348] shadow-[0_10px_18px_rgba(17,61,30,0.12)]"
+              >
+                Abrir fazenda
+              </Link>
+
+              {canManage ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onStartEditFarm(farm)}
+                    className="inline-flex items-center rounded-full bg-white/16 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/24"
+                  >
+                    <Pencil size={14} className="mr-2" />
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onDeleteFarm(farm)}
+                    disabled={isDeletingFarmId === farm.id}
+                    className="inline-flex items-center rounded-full bg-[#1d6e31] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-[#155425] disabled:opacity-60"
+                  >
+                    <Trash2 size={14} className="mr-2" />
+                    {isDeletingFarmId === farm.id ? 'Excluindo...' : 'Excluir'}
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FarmEditorCard({
+  farmForm,
+  farmError,
+  isSavingFarm,
+  isEditing,
+  onFarmFormChange,
+  onCancelFarmEditing,
+  onSubmitFarm,
+}: {
+  farmForm: FarmFormValues;
+  farmError: string | null;
+  isSavingFarm: boolean;
+  isEditing: boolean;
+  onFarmFormChange: (patch: Partial<FarmFormValues>) => void;
+  onCancelFarmEditing: () => void;
+  onSubmitFarm: () => Promise<void>;
+}) {
+  return (
+    <Card className="bg-[#fffef8]">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6f7e60]">
+            {isEditing ? 'Editar fazenda' : 'Nova fazenda'}
+          </p>
+          <h3 className="mt-2 text-2xl font-semibold text-[#22311d]">
+            {isEditing ? 'Atualize os dados da fazenda' : 'Cadastre uma nova fazenda'}
+          </h3>
+        </div>
+
+        {isEditing ? (
+          <button
+            type="button"
+            onClick={onCancelFarmEditing}
+            className="rounded-full bg-[#eef2e3] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#66755d]"
+          >
+            Cancelar edicao
+          </button>
+        ) : null}
+      </div>
+
+      <form
+        className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_180px_180px_auto] lg:items-end"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onSubmitFarm();
+        }}
+      >
+        <div>
+          <label
+            htmlFor="farm-name"
+            className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#748264]"
+          >
+            Nome
+          </label>
+          <Input
+            id="farm-name"
+            value={farmForm.name}
+            onChange={(event) => onFarmFormChange({ name: event.target.value })}
+            className="mt-2 h-12 rounded-[16px]"
+            placeholder="Ex.: Fazenda Boa Terra"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="farm-latitude"
+            className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#748264]"
+          >
+            Latitude
+          </label>
+          <Input
+            id="farm-latitude"
+            inputMode="decimal"
+            value={farmForm.latitude}
+            onChange={(event) =>
+              onFarmFormChange({ latitude: event.target.value })
+            }
+            className="mt-2 h-12 rounded-[16px]"
+            placeholder="-19.9167"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="farm-longitude"
+            className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#748264]"
+          >
+            Longitude
+          </label>
+          <Input
+            id="farm-longitude"
+            inputMode="decimal"
+            value={farmForm.longitude}
+            onChange={(event) =>
+              onFarmFormChange({ longitude: event.target.value })
+            }
+            className="mt-2 h-12 rounded-[16px]"
+            placeholder="-43.9345"
+          />
+        </div>
+
+        <Button
+          type="submit"
+          className="h-12 rounded-[16px] px-6"
+          disabled={isSavingFarm}
+        >
+          {isSavingFarm
+            ? isEditing
+              ? 'Salvando...'
+              : 'Criando...'
+            : isEditing
+              ? 'Salvar'
+              : 'Adicionar'}
+        </Button>
+      </form>
+
+      {farmError ? (
+        <p className="mt-4 rounded-[18px] bg-[#fff1f1] px-4 py-3 text-sm text-[#b33c3c]">
+          {farmError}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
 function PivotCatalogView({
+  selectedFarm,
   pivots,
   search,
   onSearchChange,
 }: {
+  selectedFarm: Farm | null;
   pivots: Pivot[];
   search: string;
   onSearchChange: (value: string) => void;
 }) {
   return (
     <section>
+      {selectedFarm ? (
+        <div className="mx-auto mt-1 flex max-w-[860px] flex-wrap items-center justify-between gap-3 rounded-[20px] bg-[#f1f4e8] px-4 py-3 text-sm text-[#5f6d54] shadow-[0_14px_24px_rgba(121,132,92,0.08)]">
+          <p>
+            Fazenda selecionada:{' '}
+            <span className="font-semibold text-[#22311d]">{selectedFarm.name}</span>
+          </p>
+          <Link
+            href={buildDashboardHref('fazendas')}
+            className="rounded-full bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2a9348] shadow-[0_10px_20px_rgba(121,132,92,0.1)]"
+          >
+            Trocar fazenda
+          </Link>
+        </div>
+      ) : null}
+
       <div className="mx-auto mt-2 max-w-[430px]">
         <div className="relative">
           <Search
@@ -292,7 +873,13 @@ function PivotCatalogView({
       </div>
 
       {pivots.length === 0 ? (
-        <EmptyDashboardState message="Nenhum pivo encontrado para o filtro atual." />
+        <EmptyDashboardState
+          message={
+            selectedFarm
+              ? `Nenhum pivo encontrado para o filtro atual na fazenda ${selectedFarm.name}.`
+              : 'Nenhum pivo encontrado para o filtro atual.'
+          }
+        />
       ) : (
         <div className="mt-9 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
           {pivots.map((pivot) => (
@@ -437,7 +1024,12 @@ function DashboardHero({
   onLogout: () => void;
 }) {
   const copy =
-    currentTab === 'mapa'
+    currentTab === 'fazendas'
+      ? {
+          title: 'Fazendas',
+          subtitle: 'selecione a fazenda desejada',
+        }
+      : currentTab === 'mapa'
       ? {
           title: 'Mapa',
           subtitle: 'acompanhe a distribuicao dos pivos em campo',
@@ -607,16 +1199,19 @@ function MobileDashboardNav({ navItems }: { navItems: DashboardNavItem[] }) {
   );
 }
 
-function getDashboardNavItems(currentTab: DashboardTab): DashboardNavItem[] {
+function getDashboardNavItems(
+  currentTab: DashboardTab,
+  farmId?: string | null,
+): DashboardNavItem[] {
   return [
     {
-      href: '/dashboard?tab=pivots',
+      href: buildDashboardHref('fazendas'),
       icon: House,
       label: 'Fazendas',
-      active: false,
+      active: currentTab === 'fazendas',
     },
     {
-      href: '/dashboard?tab=pivots',
+      href: buildDashboardHref('pivots', farmId),
       icon: Sprout,
       label: 'Pivos',
       active: currentTab === 'pivots',
@@ -627,18 +1222,211 @@ function getDashboardNavItems(currentTab: DashboardTab): DashboardNavItem[] {
       disabled: true,
     },
     {
-      href: '/dashboard?tab=historico',
+      href: buildDashboardHref('historico', farmId),
       icon: History,
       label: 'Historico',
       active: currentTab === 'historico',
     },
     {
-      href: '/dashboard?tab=mapa',
+      href: buildDashboardHref('mapa', farmId),
       icon: MapPinned,
       label: 'Mapa',
       active: currentTab === 'mapa',
     },
   ];
+}
+
+function buildDashboardHref(tab: DashboardTab, farmId?: string | null) {
+  const params = new URLSearchParams({ tab });
+
+  if (farmId) {
+    params.set('farmId', farmId);
+  }
+
+  return `/dashboard?${params.toString()}`;
+}
+
+function createEmptyHistoryFilters(): HistoryFiltersForm {
+  return {
+    startDate: '',
+    startTime: '',
+    endDate: '',
+    endTime: '',
+    status: 'all',
+    mode: 'all',
+    periodPreset: 'custom',
+  };
+}
+
+function historyFiltersAreActive(filters: HistoryFiltersForm) {
+  return Boolean(
+    filters.startDate ||
+      filters.startTime ||
+      filters.endDate ||
+      filters.endTime ||
+      filters.status !== 'all' ||
+      filters.mode !== 'all',
+  );
+}
+
+function validateHistoryFilters(filters: HistoryFiltersForm) {
+  const startAt = combineDateTimeToIso(
+    filters.startDate,
+    filters.startTime,
+    'start',
+  );
+  const endAt = combineDateTimeToIso(filters.endDate, filters.endTime, 'end');
+
+  if (startAt && endAt && new Date(startAt) > new Date(endAt)) {
+    return 'O periodo inicial precisa ser menor ou igual ao periodo final.';
+  }
+
+  return null;
+}
+
+function createHistoryPresetFilters(
+  preset: Exclude<HistoryPeriodPreset, 'custom'>,
+  current: HistoryFiltersForm,
+): HistoryFiltersForm {
+  const endAt = new Date();
+  const startAt = new Date(endAt);
+
+  if (preset === '24h') {
+    startAt.setHours(startAt.getHours() - 24);
+  }
+
+  if (preset === '7d') {
+    startAt.setDate(startAt.getDate() - 7);
+  }
+
+  if (preset === '30d') {
+    startAt.setDate(startAt.getDate() - 30);
+  }
+
+  return {
+    ...current,
+    startDate: formatDateInputValue(startAt),
+    startTime: formatTimeInputValue(startAt),
+    endDate: formatDateInputValue(endAt),
+    endTime: formatTimeInputValue(endAt),
+    periodPreset: preset,
+  };
+}
+
+function buildHistoryApiFilters(filters: HistoryFiltersForm) {
+  const startAt = combineDateTimeToIso(
+    filters.startDate,
+    filters.startTime,
+    'start',
+  );
+  const endAt = combineDateTimeToIso(filters.endDate, filters.endTime, 'end');
+
+  let isOn: boolean | undefined;
+  let isIrrigating: boolean | undefined;
+
+  if (filters.status === 'on') {
+    isOn = true;
+  }
+
+  if (filters.status === 'off') {
+    isOn = false;
+  }
+
+  if (filters.mode === 'water') {
+    isIrrigating = true;
+  }
+
+  if (filters.mode === 'movement') {
+    isIrrigating = false;
+    isOn ??= true;
+  }
+
+  return {
+    ...(startAt ? { startAt } : {}),
+    ...(endAt ? { endAt } : {}),
+    ...(typeof isOn === 'boolean' ? { isOn } : {}),
+    ...(typeof isIrrigating === 'boolean' ? { isIrrigating } : {}),
+    limit: 80,
+  };
+}
+
+function combineDateTimeToIso(
+  date: string,
+  time: string,
+  boundary: 'start' | 'end',
+) {
+  if (!date) {
+    return undefined;
+  }
+
+  const normalizedTime =
+    time || (boundary === 'start' ? '00:00' : '23:59');
+  const localDate = new Date(`${date}T${normalizedTime}:00`);
+
+  if (Number.isNaN(localDate.getTime())) {
+    return undefined;
+  }
+
+  if (boundary === 'end') {
+    localDate.setSeconds(59, 999);
+  }
+
+  return localDate.toISOString();
+}
+
+function formatDateInputValue(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+function formatTimeInputValue(date: Date) {
+  return [
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+  ].join(':');
+}
+
+function createEmptyFarmForm(): FarmFormValues {
+  return {
+    name: '',
+    latitude: '',
+    longitude: '',
+  };
+}
+
+function parseFarmForm(form: FarmFormValues) {
+  const name = form.name.trim();
+  const latitude = Number(form.latitude);
+  const longitude = Number(form.longitude);
+
+  if (!name || Number.isNaN(latitude) || Number.isNaN(longitude)) {
+    return null;
+  }
+
+  return {
+    name,
+    latitude,
+    longitude,
+  };
+}
+
+function sortFarmRecords(farms: FarmRecord[]) {
+  return [...farms].sort((firstFarm, secondFarm) =>
+    firstFarm.name.localeCompare(secondFarm.name, 'pt-BR'),
+  );
+}
+
+function getFarmLocationLabel(farm: Farm) {
+  return `${formatNumber(farm.latitude, {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  })}, ${formatNumber(farm.longitude, {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  })}`;
 }
 
 function getPivotLastUpdateLabel(pivot: Pivot) {
@@ -835,132 +1623,420 @@ function DashboardHistoryView({
   onSelect,
   pivot,
   error,
-  irrigatingCount,
+  filters,
+  hasActiveFilters,
+  onFiltersChange,
+  onApplyFilters,
+  onClearFilters,
+  onApplyPeriodPreset,
+  cycleCount,
+  waterStateCount,
 }: {
   pivots: Pivot[];
   selectedPivotId: string | null;
   onSelect: (id: string) => void;
   pivot: Pivot | null;
   error: string | null;
-  irrigatingCount: number;
+  filters: HistoryFiltersForm;
+  hasActiveFilters: boolean;
+  onFiltersChange: (patch: Partial<HistoryFiltersForm>) => void;
+  onApplyFilters: () => void;
+  onClearFilters: () => void;
+  onApplyPeriodPreset: (
+    preset: Exclude<HistoryPeriodPreset, 'custom'>,
+  ) => void;
+  cycleCount: number;
+  waterStateCount: number;
 }) {
   return (
-    <div className="space-y-4 lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start lg:gap-4 lg:space-y-0">
-      <div className="space-y-4 lg:sticky lg:top-6">
-        <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
-          {pivots.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelect(item.id)}
-              className={
-                item.id === selectedPivotId
-                  ? 'rounded-full bg-[#319747] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white lg:rounded-[20px] lg:px-4 lg:py-3 lg:text-left'
-                  : 'rounded-full bg-[#fffef8] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6d7c61] lg:rounded-[20px] lg:px-4 lg:py-3 lg:text-left'
-              }
-            >
-              {item.name}
-            </button>
+    <div className="space-y-4">
+      <HistoryFilterPanel
+        filters={filters}
+        hasActiveFilters={hasActiveFilters}
+        resultCount={pivot?.states.length ?? 0}
+        onFiltersChange={onFiltersChange}
+        onApplyFilters={onApplyFilters}
+        onClearFilters={onClearFilters}
+        onApplyPeriodPreset={onApplyPeriodPreset}
+      />
+
+      <div className="space-y-4 lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start lg:gap-4 lg:space-y-0">
+        <div className="space-y-4 lg:sticky lg:top-6">
+          <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
+            {pivots.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelect(item.id)}
+                className={
+                  item.id === selectedPivotId
+                    ? 'rounded-full bg-[#319747] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white lg:rounded-[20px] lg:px-4 lg:py-3 lg:text-left'
+                    : 'rounded-full bg-[#fffef8] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6d7c61] lg:rounded-[20px] lg:px-4 lg:py-3 lg:text-left'
+                }
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+
+          <Card className="bg-[#fffef8]">
+            <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
+              <SummaryChip
+                icon={History}
+                label="Leituras"
+                value={String(pivot?.states.length ?? 0)}
+              />
+              <SummaryChip
+                icon={Droplets}
+                label="Com agua"
+                value={String(waterStateCount)}
+              />
+              <SummaryChip
+                icon={CloudSun}
+                label="Ciclos"
+                value={String(cycleCount)}
+              />
+            </div>
+          </Card>
+        </div>
+
+        <div className="space-y-4">
+          {error ? (
+            <p className="rounded-[18px] bg-[#fff1f1] px-4 py-3 text-sm text-[#b33c3c]">
+              {error}
+            </p>
+          ) : null}
+
+          {pivot ? (
+            <>
+              <Card className="bg-[#fffef8]">
+                <div className="flex items-center gap-4">
+                  <PivotWheel
+                    angle={pivot.live.angle}
+                    percentimeter={pivot.live.percentimeter}
+                    size={76}
+                  />
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6f7f63]">
+                      {pivot.farm.name}
+                    </p>
+                    <h3 className="mt-1 text-xl font-semibold text-[#22311d]">
+                      {pivot.name}
+                    </h3>
+                    <p className="mt-1 text-sm text-[#5e6d54]">
+                      Codigo {pivot.code} - ultimo pacote em{' '}
+                      {pivot.states[0] ? formatDate(pivot.states[0].timestamp) : '--'}
+                    </p>
+                  </div>
+                </div>
+              </Card>
+
+              <HistoryChart pivot={pivot} />
+
+              {pivot.states.length === 0 ? (
+                <EmptyDashboardState message="Nenhum registro encontrado para os filtros selecionados." />
+              ) : (
+                <div className="grid gap-3 xl:grid-cols-2">
+                  {pivot.states.slice(0, 4).map((state) => {
+                    const lastCycle = state.cycles[0];
+
+                    return (
+                      <Card key={state.id} className="bg-[#fffef8]">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#738264]">
+                              Registro
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-[#22311d]">
+                              {formatDate(state.timestamp)}
+                            </p>
+                          </div>
+                          <Badge tone={state.endedAt ? 'neutral' : 'success'}>
+                            {state.endedAt ? 'Fechado' : 'Em curso'}
+                          </Badge>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <HistoryStateChip
+                            active={state.isOn}
+                            label={state.isOn ? 'Ligado' : 'Parado'}
+                          />
+                          <HistoryStateChip
+                            active={state.isIrrigating}
+                            label={state.isIrrigating ? 'Com agua' : 'Movimento'}
+                          />
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          <MapMetric
+                            icon={Gauge}
+                            label="Angulo"
+                            value={`${formatNumber(lastCycle?.angle ?? 0, {
+                              maximumFractionDigits: 1,
+                            })} deg`}
+                          />
+                          <MapMetric
+                            icon={Waves}
+                            label="Lamina"
+                            value={`${formatNumber(lastCycle?.appliedBlade ?? 0, {
+                              maximumFractionDigits: 1,
+                            })} mm`}
+                          />
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryFilterPanel({
+  filters,
+  hasActiveFilters,
+  resultCount,
+  onFiltersChange,
+  onApplyFilters,
+  onClearFilters,
+  onApplyPeriodPreset,
+}: {
+  filters: HistoryFiltersForm;
+  hasActiveFilters: boolean;
+  resultCount: number;
+  onFiltersChange: (patch: Partial<HistoryFiltersForm>) => void;
+  onApplyFilters: () => void;
+  onClearFilters: () => void;
+  onApplyPeriodPreset: (
+    preset: Exclude<HistoryPeriodPreset, 'custom'>,
+  ) => void;
+}) {
+  return (
+    <Card className="bg-[#f6f6f1]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold text-[#2a9348]">Inicio:</p>
+            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_120px] gap-3">
+              <div className="relative">
+                <CalendarDays
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#4b4f4a]"
+                  size={22}
+                />
+                <Input
+                  type="date"
+                  value={filters.startDate}
+                  onChange={(event) =>
+                    onFiltersChange({
+                      startDate: event.target.value,
+                      periodPreset: 'custom',
+                    })
+                  }
+                  className="h-11 rounded-[14px] border-[#d7ddc3] bg-white pl-12"
+                />
+              </div>
+              <div className="relative">
+                <Clock3
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#4b4f4a]"
+                  size={20}
+                />
+                <Input
+                  type="time"
+                  value={filters.startTime}
+                  onChange={(event) =>
+                    onFiltersChange({
+                      startTime: event.target.value,
+                      periodPreset: 'custom',
+                    })
+                  }
+                  className="h-11 rounded-[14px] border-[#d7ddc3] bg-white pl-12"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-[#2a9348]">Termino:</p>
+            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_120px] gap-3">
+              <div className="relative">
+                <CalendarDays
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#4b4f4a]"
+                  size={22}
+                />
+                <Input
+                  type="date"
+                  value={filters.endDate}
+                  onChange={(event) =>
+                    onFiltersChange({
+                      endDate: event.target.value,
+                      periodPreset: 'custom',
+                    })
+                  }
+                  className="h-11 rounded-[14px] border-[#d7ddc3] bg-white pl-12"
+                />
+              </div>
+              <div className="relative">
+                <Clock3
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#4b4f4a]"
+                  size={20}
+                />
+                <Input
+                  type="time"
+                  value={filters.endTime}
+                  onChange={(event) =>
+                    onFiltersChange({
+                      endTime: event.target.value,
+                      periodPreset: 'custom',
+                    })
+                  }
+                  className="h-11 rounded-[14px] border-[#d7ddc3] bg-white pl-12"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap justify-start gap-3 xl:justify-end">
+          <button
+            type="button"
+            onClick={onClearFilters}
+            className="inline-flex min-w-[124px] items-center justify-center rounded-full bg-[#e3514d] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(227,81,77,0.18)] transition hover:bg-[#cf4743]"
+          >
+            Limpar
+          </button>
+          <button
+            type="button"
+            onClick={onApplyFilters}
+            className="inline-flex min-w-[124px] items-center justify-center rounded-full bg-[#2f9446] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_24px_rgba(47,148,70,0.18)] transition hover:bg-[#25773a]"
+          >
+            Pesquisar
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-col gap-4 border-t border-[#dde4ca] pt-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="mr-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#718061]">
+            Periodo rapido
+          </p>
+          {(['24h', '7d', '30d'] as const).map((preset) => (
+            <HistoryFilterChip
+              key={preset}
+              active={filters.periodPreset === preset}
+              label={preset === '24h' ? '24 horas' : preset === '7d' ? '7 dias' : '30 dias'}
+              onClick={() => onApplyPeriodPreset(preset)}
+            />
           ))}
         </div>
 
-        <Card className="bg-[#fffef8]">
-          <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
-            <SummaryChip
-              icon={History}
-              label="Leituras"
-              value={String(pivot?.states.length ?? 0)}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="mr-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#718061]">
+              Estado
+            </p>
+            <HistoryFilterChip
+              active={filters.status === 'all'}
+              label="Todos"
+              onClick={() => onFiltersChange({ status: 'all' })}
             />
-            <SummaryChip
-              icon={Droplets}
-              label="Agua"
-              value={String(irrigatingCount)}
+            <HistoryFilterChip
+              active={filters.status === 'on'}
+              label="Ligado"
+              onClick={() => onFiltersChange({ status: 'on' })}
             />
-            <SummaryChip
-              icon={CloudSun}
-              label="Foco"
-              value={pivot?.name ?? '--'}
+            <HistoryFilterChip
+              active={filters.status === 'off'}
+              label="Parado"
+              onClick={() => onFiltersChange({ status: 'off' })}
             />
           </div>
-        </Card>
-      </div>
 
-      <div className="space-y-4">
-        {error ? (
-          <p className="rounded-[18px] bg-[#fff1f1] px-4 py-3 text-sm text-[#b33c3c]">
-            {error}
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="mr-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#718061]">
+              Modo
+            </p>
+            <HistoryFilterChip
+              active={filters.mode === 'all'}
+              label="Todos"
+              onClick={() => onFiltersChange({ mode: 'all' })}
+            />
+            <HistoryFilterChip
+              active={filters.mode === 'water'}
+              label="Com agua"
+              onClick={() => onFiltersChange({ mode: 'water' })}
+            />
+            <HistoryFilterChip
+              active={filters.mode === 'movement'}
+              label="Movimento"
+              onClick={() => onFiltersChange({ mode: 'movement' })}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <p className="text-[#5f6d54]">
+            {resultCount}{' '}
+            {resultCount === 1 ? 'registro encontrado' : 'registros encontrados'}
           </p>
-        ) : null}
-
-        {pivot ? (
-          <>
-            <Card className="bg-[#fffef8]">
-              <div className="flex items-center gap-4">
-                <PivotWheel
-                  angle={pivot.live.angle}
-                  percentimeter={pivot.live.percentimeter}
-                  size={76}
-                />
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6f7f63]">
-                    {pivot.farm.name}
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold text-[#22311d]">
-                    {pivot.name}
-                  </h3>
-                  <p className="mt-1 text-sm text-[#5e6d54]">
-                    Codigo {pivot.code} - ultimo pacote em{' '}
-                    {pivot.states[0] ? formatDate(pivot.states[0].timestamp) : '--'}
-                  </p>
-                </div>
-              </div>
-            </Card>
-
-            <HistoryChart pivot={pivot} />
-
-            <div className="grid gap-3 xl:grid-cols-2">
-              {pivot.states.slice(0, 4).map((state) => {
-                const lastCycle = state.cycles[0];
-
-                return (
-                  <Card key={state.id} className="bg-[#fffef8]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#738264]">
-                          Registro
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-[#22311d]">
-                          {formatDate(state.timestamp)}
-                        </p>
-                      </div>
-                      <Badge tone={state.endedAt ? 'neutral' : 'success'}>
-                        {state.endedAt ? 'Fechado' : 'Em curso'}
-                      </Badge>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <MapMetric
-                        icon={Gauge}
-                        label="Angulo"
-                        value={`${formatNumber(lastCycle?.angle ?? 0, {
-                          maximumFractionDigits: 1,
-                        })} deg`}
-                      />
-                      <MapMetric
-                        icon={Waves}
-                        label="Lamina"
-                        value={`${formatNumber(lastCycle?.appliedBlade ?? 0, {
-                          maximumFractionDigits: 1,
-                        })} mm`}
-                      />
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          </>
-        ) : null}
+          {hasActiveFilters ? (
+            <span className="rounded-full bg-[#eef5dd] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#5f7b44]">
+              filtros ativos
+            </span>
+          ) : (
+            <span className="text-[#909b87]">Sem filtros adicionais</span>
+          )}
+        </div>
       </div>
-    </div>
+    </Card>
+  );
+}
+
+function HistoryFilterChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] transition',
+        active
+          ? 'bg-[#2f9446] text-white shadow-[0_10px_20px_rgba(47,148,70,0.18)]'
+          : 'bg-white text-[#6d7c61] shadow-[0_10px_20px_rgba(150,159,132,0.08)] hover:bg-[#f1f5e6]',
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function HistoryStateChip({
+  active,
+  label,
+}: {
+  active: boolean;
+  label: string;
+}) {
+  return (
+    <span
+      className={cn(
+        'rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]',
+        active
+          ? 'bg-[#ebf7ee] text-[#2f9446]'
+          : 'bg-[#f1f3ec] text-[#717b6d]',
+      )}
+    >
+      {label}
+    </span>
   );
 }

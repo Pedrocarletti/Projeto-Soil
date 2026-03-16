@@ -12,6 +12,7 @@ import { TelemetryMqttService } from '../telemetry/telemetry-mqtt.service';
 import { TelemetryQueueService } from '../telemetry/telemetry-queue.service';
 import { ControlPivotDto, PivotIrrigationMode } from './dto/control-pivot.dto';
 import { CreatePivotDto } from './dto/create-pivot.dto';
+import { GetPivotHistoryQueryDto } from './dto/get-pivot-history-query.dto';
 import {
   pivotDetailInclude,
   pivotSummaryInclude,
@@ -50,15 +51,58 @@ export class PivotsService {
     return presentPivot(pivot);
   }
 
-  async history(id: string) {
+  async history(id: string, query: GetPivotHistoryQueryDto) {
     await this.findOne(id);
 
+    const startAt = query.startAt ? new Date(query.startAt) : null;
+    const endAt = query.endAt ? new Date(query.endAt) : null;
+
+    if (startAt && endAt && startAt > endAt) {
+      throw new BadRequestException(
+        'startAt must be less than or equal to endAt.',
+      );
+    }
+
+    const where: Prisma.StateWhereInput = {
+      pivotId: id,
+    };
+
+    if (startAt || endAt) {
+      where.timestamp = {
+        ...(startAt ? { gte: startAt } : {}),
+        ...(endAt ? { lte: endAt } : {}),
+      };
+    }
+
+    if (typeof query.isOn === 'boolean') {
+      where.isOn = query.isOn;
+    }
+
+    if (typeof query.isIrrigating === 'boolean') {
+      where.isIrrigating = query.isIrrigating;
+    }
+
+    const cycleWhere =
+      startAt || endAt
+        ? {
+            ...(startAt ? { gte: startAt } : {}),
+            ...(endAt ? { lte: endAt } : {}),
+          }
+        : undefined;
+
     return this.prisma.state.findMany({
-      where: { pivotId: id },
+      where,
       orderBy: { timestamp: 'desc' },
-      take: 20,
+      take: query.limit ?? 60,
       include: {
         cycles: {
+          ...(cycleWhere
+            ? {
+                where: {
+                  timestamp: cycleWhere,
+                },
+              }
+            : {}),
           orderBy: { timestamp: 'desc' },
           take: 240,
         },

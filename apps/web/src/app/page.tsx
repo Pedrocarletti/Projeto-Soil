@@ -50,7 +50,7 @@ export default function Home() {
                     </Button>
                   </Link>
 
-                  <Link href="/dashboard?tab=pivots" className="block">
+                  <Link href="/dashboard?tab=fazendas" className="block">
                     <Button className="w-full" variant="secondary">
                       Abrir demonstracao
                     </Button>

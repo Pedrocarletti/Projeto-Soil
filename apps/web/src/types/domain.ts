@@ -12,6 +12,16 @@ export interface Farm {
   longitude: number;
 }
 
+export interface FarmPivotSummary {
+  id: string;
+  name: string;
+  code: string;
+}
+
+export interface FarmRecord extends Farm {
+  pivots: FarmPivotSummary[];
+}
+
 export interface Cycle {
   id: string;
   timestamp: string;

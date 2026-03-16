@@ -1,10 +1,19 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ControlPivotDto } from './dto/control-pivot.dto';
 import { CreatePivotDto } from './dto/create-pivot.dto';
+import { GetPivotHistoryQueryDto } from './dto/get-pivot-history-query.dto';
 import { PivotsService } from './pivots.service';
 
 @Controller('pivots')
@@ -23,8 +32,11 @@ export class PivotsController {
   }
 
   @Get(':id/history')
-  history(@Param('id') id: string) {
-    return this.pivotsService.history(id);
+  history(
+    @Param('id') id: string,
+    @Query() query: GetPivotHistoryQueryDto,
+  ) {
+    return this.pivotsService.history(id, query);
   }
 
   @Post()

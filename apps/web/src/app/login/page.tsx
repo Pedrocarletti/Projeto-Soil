@@ -1,14 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { LockKeyhole, Mail, Radio, Waves } from 'lucide-react';
+import { LockKeyhole, UserRound } from 'lucide-react';
 import { SoilMark } from '@/components/layout/mobile-app-shell';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 export default function LoginPage() {
   const demoEmail = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? '';
@@ -19,6 +18,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState(demoEmail);
   const [password, setPassword] = useState(demoPassword);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -27,8 +27,9 @@ export default function LoginPage() {
     try {
       setIsSubmitting(true);
       setError(null);
+      setNotice(null);
       await login(email, password);
-      router.replace('/dashboard?tab=pivots');
+      router.replace('/dashboard?tab=fazendas');
     } catch (loginError) {
       setError((loginError as Error).message);
     } finally {
@@ -36,147 +37,179 @@ export default function LoginPage() {
     }
   }
 
+  function handleForgotPassword() {
+    setError(null);
+    setNotice(
+      hasDemoCredentials
+        ? 'Se precisar redefinir o acesso, use a credencial demo configurada ou solicite uma nova ao administrador.'
+        : 'Solicite a redefinicao de senha ao administrador do ambiente.',
+    );
+  }
+
+  function handleSettingsInfo() {
+    setError(null);
+    setNotice(
+      'As configuracoes deste ambiente sao definidas no deploy do frontend e da API.',
+    );
+  }
+
   return (
-    <main className="min-h-screen px-3 py-4 sm:px-6 sm:py-8 xl:px-8">
-      <div className="mx-auto w-full max-w-[1180px]">
-        <div className="relative overflow-hidden rounded-[34px] border border-[#d4deb1] bg-[#f6f7eb] shadow-[0_28px_90px_rgba(42,61,26,0.22)] lg:rounded-[42px]">
-          <div className="absolute inset-x-0 top-0 h-32 bg-[linear-gradient(180deg,#ecf0c4_0%,#e5e8b8_54%,rgba(246,247,235,0)_100%)] lg:h-52" />
-          <div className="absolute inset-x-0 top-0 h-32 bg-[repeating-linear-gradient(140deg,rgba(147,166,80,0.18)_0_10px,rgba(255,255,255,0)_10px_24px)] opacity-60 lg:h-52" />
+    <main className="min-h-screen bg-[#ecece6] sm:px-4 sm:py-4">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1280px] flex-col overflow-hidden bg-[#f5f5f1] shadow-[0_26px_70px_rgba(54,61,41,0.16)] sm:min-h-[calc(100vh-2rem)] sm:rounded-[28px]">
+        <section className="relative min-h-[174px] overflow-hidden md:min-h-[236px]">
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,#9bb47f_0%,#d4d88f_38%,#d7cb67_100%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(26,44,27,0.42)_0%,rgba(38,57,30,0.15)_34%,rgba(255,224,118,0.25)_100%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_83%_28%,rgba(255,242,168,0.94)_0%,rgba(255,242,168,0.42)_20%,rgba(255,242,168,0)_45%)]" />
+          <div className="absolute inset-x-0 bottom-0 h-[48%] bg-[linear-gradient(180deg,#88a24b_0%,#73903e_44%,#668138_100%)]" />
+          <div className="absolute inset-x-0 bottom-[18%] h-[26%] bg-[linear-gradient(180deg,rgba(154,175,92,0.15)_0%,rgba(235,227,137,0.42)_100%)]" />
+          <div className="absolute inset-x-0 bottom-[18%] h-[3px] bg-[rgba(255,237,175,0.24)]" />
+          <div className="absolute inset-x-0 bottom-[10%] h-[16%] bg-[repeating-linear-gradient(-7deg,rgba(96,119,50,0.2)_0_15px,rgba(173,191,88,0.08)_15px_36px)] opacity-70" />
+          <div className="absolute inset-x-[34%] top-[46%] h-[3px] rounded-full bg-[#4f5d32]/20 blur-sm" />
+          <div className="absolute left-[52%] top-[42%] flex items-end gap-2 opacity-60">
+            <span className="h-3 w-5 rounded-t-sm bg-[#f2efdd]/85" />
+            <span className="h-4 w-6 rounded-t-sm bg-[#ece8d2]/90" />
+            <span className="h-3 w-5 rounded-t-sm bg-[#f6f0d8]/80" />
+            <span className="h-5 w-8 rounded-t-sm bg-[#ebe5c8]/90" />
+          </div>
 
-          <div className="relative flex min-h-[calc(100dvh-2rem)] flex-col px-5 py-5 lg:min-h-[720px] lg:grid-cols-[1fr_460px] lg:gap-10 lg:px-8 lg:py-8 xl:grid">
-            <div className="hidden lg:flex lg:flex-col lg:justify-between lg:rounded-[34px] lg:bg-[linear-gradient(180deg,rgba(255,255,255,0.55)_0%,rgba(255,255,255,0.25)_100%)] lg:p-8">
-              <div>
-                <div className="flex items-center gap-3">
-                  <SoilMark className="h-14 w-14 border-[6px]" />
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#61744c]">
-                      Processo Seletivo
-                    </p>
-                    <h1 className="mt-2 text-4xl font-semibold leading-tight text-[#21301c]">
-                      Login do centro operacional.
-                    </h1>
-                  </div>
-                </div>
-
-                <p className="mt-6 max-w-[520px] text-base leading-7 text-[#5d6d53]">
-                  {hasDemoCredentials
-                    ? 'Entre com a credencial demo para abrir o dashboard, acompanhar a telemetria em tempo real e testar o fluxo de comando do pivot.'
-                    : 'Entre com a credencial administrativa configurada para abrir o dashboard, acompanhar a telemetria em tempo real e testar o fluxo de comando do pivot.'}
-                </p>
-              </div>
-
-              <div className="grid gap-4">
-                {hasDemoCredentials ? (
-                  <Card className="bg-[#319747] p-5 text-white shadow-[0_20px_38px_rgba(49,151,71,0.22)]">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/72">
-                      Credencial demo
-                    </p>
-                    <p className="mt-4 font-mono text-base">{demoEmail}</p>
-                    <p className="mt-1 font-mono text-base">{demoPassword}</p>
-                  </Card>
-                ) : null}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <Card className="bg-[#fffef8] p-5">
-                    <Radio className="text-[#2e7f3f]" size={18} />
-                    <p className="mt-3 text-lg font-semibold text-[#21301c]">
-                      Dashboard live
-                    </p>
-                  </Card>
-                  <Card className="bg-[#fffef8] p-5">
-                    <Waves className="text-[#2e7f3f]" size={18} />
-                    <p className="mt-3 text-lg font-semibold text-[#21301c]">
-                      Clima e historico
-                    </p>
-                  </Card>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col lg:justify-center">
-              <div className="relative flex items-center justify-between lg:hidden">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[#62744d]">
-                  Login
-                </p>
-                <div className="inline-flex items-center gap-2 rounded-full bg-[#f9fbf1]/90 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-[#50653c]">
-                  <SoilMark className="h-5 w-5 border-[2.5px]" />
-                  SOIL
-                </div>
-              </div>
-
-              <div className="mt-8 rounded-[28px] bg-white px-5 py-6 shadow-[0_18px_40px_rgba(45,63,29,0.08)] lg:mt-0 lg:px-8 lg:py-8">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[#708064]">
-                  Autenticacao
-                </p>
-                <h2 className="mt-2 text-[31px] font-semibold leading-[1.04] text-[#21301c]">
-                  Entrar
-                </h2>
-                <p className="mt-2 text-sm leading-5 text-[#64725a]">
-                  {hasDemoCredentials
-                    ? 'Use a credencial demo para acessar o painel operacional.'
-                    : 'Use a credencial administrativa configurada para acessar o painel operacional.'}
-                </p>
-
-                <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
-                  <div className="relative">
-                    <Mail
-                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7c8b72]"
-                      size={16}
-                    />
-                    <Input
-                      type="email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      className="pl-11"
-                      placeholder="Seu e-mail"
-                    />
-                  </div>
-
-                  <div className="relative">
-                    <LockKeyhole
-                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7c8b72]"
-                      size={16}
-                    />
-                    <Input
-                      type="password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      className="pl-11"
-                      placeholder="Sua senha"
-                    />
-                  </div>
-
-                  {hasDemoCredentials ? (
-                    <div className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.18em]">
-                      <span className="text-[#9aa38e]">Demo</span>
-                      <span className="text-right text-[#319747]">
-                        {demoEmail}
-                        <br />
-                        {demoPassword}
-                      </span>
-                    </div>
-                  ) : null}
-
-                  {error ? (
-                    <p className="rounded-[16px] bg-[#fff1f1] px-4 py-3 text-sm text-[#b33c3c]">
-                      {error}
-                    </p>
-                  ) : null}
-
-                  <Button className="mt-2 w-full" type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? 'Autenticando...' : 'Entrar'}
-                  </Button>
-                </form>
-              </div>
-
-              <div className="mt-6 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7d8b73]">
-                <Link href="/">Inicio</Link>
-                <span>Versao demo</span>
-              </div>
+          <div className="relative z-10 flex h-full items-end px-8 pb-7 pt-10 md:px-16 md:pb-8">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-white/72">
+                Central de acesso
+              </p>
+              <h1 className="mt-2 text-[44px] font-semibold leading-none tracking-[-0.05em] text-white md:text-[58px]">
+                Login
+              </h1>
             </div>
           </div>
-        </div>
+        </section>
+
+        <section className="relative flex flex-1 flex-col items-center px-6 pb-10 pt-10 md:px-14 md:pb-12 md:pt-6">
+          <div className="pointer-events-none absolute left-1/2 top-[42px] h-[420px] w-[min(88vw,620px)] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.98)_0%,rgba(255,255,255,0.72)_26%,rgba(248,248,245,0.22)_55%,rgba(248,248,245,0)_80%)] blur-[10px]" />
+
+          <form
+            className="relative z-10 flex w-full max-w-[360px] flex-1 flex-col items-center"
+            onSubmit={handleSubmit}
+          >
+            <div className="mt-2 w-full space-y-5 md:mt-6">
+              <label className="sr-only" htmlFor="login-email">
+                Usuario
+              </label>
+              <div className="relative">
+                <UserRound
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#b5bfce]"
+                  size={19}
+                  strokeWidth={2.1}
+                />
+                <Input
+                  id="login-email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="h-14 rounded-full border-white/70 bg-white/92 pl-13 pr-5 text-[15px] text-[#4b5360] shadow-[0_16px_34px_rgba(204,210,219,0.42)] placeholder:text-[#b4bcc8] focus:border-[#c8d874] focus:ring-[#d9e694]/40"
+                  placeholder="Usuario"
+                />
+              </div>
+
+              <label className="sr-only" htmlFor="login-password">
+                Senha
+              </label>
+              <div className="relative">
+                <LockKeyhole
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#b5bfce]"
+                  size={18}
+                  strokeWidth={2.1}
+                />
+                <Input
+                  id="login-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="h-14 rounded-full border-white/70 bg-white/92 pl-13 pr-5 text-[15px] text-[#4b5360] shadow-[0_16px_34px_rgba(204,210,219,0.42)] placeholder:text-[#b4bcc8] focus:border-[#c8d874] focus:ring-[#d9e694]/40"
+                  placeholder="Senha"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  className="text-sm font-medium text-[#169745] transition hover:text-[#0e7b36]"
+                >
+                  Esqueceu a senha?
+                </button>
+              </div>
+
+              {hasDemoCredentials ? (
+                <div className="rounded-[24px] border border-[#e4e8d9] bg-white/74 px-4 py-3 text-center text-[12px] text-[#71806f] shadow-[0_10px_26px_rgba(213,219,226,0.34)]">
+                  <span className="font-semibold text-[#2c3a1d]">Acesso demo:</span>{' '}
+                  {demoEmail} / {demoPassword}
+                </div>
+              ) : null}
+
+              {error ? (
+                <div className="rounded-[24px] border border-[#f3d0d0] bg-[#fff5f5] px-4 py-3 text-center text-sm text-[#bf4343] shadow-[0_10px_24px_rgba(227,197,197,0.22)]">
+                  {error}
+                </div>
+              ) : null}
+
+              {notice ? (
+                <div className="rounded-[24px] border border-[#dbe7cd] bg-[#f5faef] px-4 py-3 text-center text-sm text-[#547144] shadow-[0_10px_24px_rgba(213,225,201,0.22)]">
+                  {notice}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-14 flex w-full flex-1 flex-col items-center justify-end gap-6 pb-8 md:mt-20 md:pb-4">
+              <Button
+                className="h-12 w-full max-w-[286px] rounded-full border-none bg-[#e8edf4] text-[24px] font-semibold text-[#7e8ca4] shadow-[0_22px_44px_rgba(220,226,234,0.9)] hover:bg-[#dde5ee] hover:text-[#728198]"
+                type="submit"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Entrando...' : 'Entrar'}
+              </Button>
+
+              <button
+                type="button"
+                onClick={handleSettingsInfo}
+                className="text-[18px] font-medium text-[#0ea340] transition hover:text-[#0a8834]"
+              >
+                Configuracoes
+              </button>
+            </div>
+          </form>
+
+          <div className="relative z-10 mt-2 flex w-full items-end justify-start md:absolute md:bottom-10 md:left-12 md:right-12">
+            <SoilWordmark />
+          </div>
+        </section>
       </div>
     </main>
+  );
+}
+
+function SoilWordmark() {
+  return (
+    <div className="select-none">
+      <div className="flex items-end gap-1.5 text-[#314020]">
+        <span className="text-[76px] font-black leading-none tracking-[-0.12em] md:text-[88px]">
+          S
+        </span>
+        <div className="mb-1 flex h-[58px] w-[58px] items-center justify-center md:h-[66px] md:w-[66px]">
+          <SoilMark className={cn('h-full w-full border-[8px] md:border-[9px]')} />
+        </div>
+        <span className="text-[76px] font-black leading-none tracking-[-0.12em] md:text-[88px]">
+          I
+        </span>
+        <span className="text-[76px] font-black leading-none tracking-[-0.12em] md:text-[88px]">
+          L
+        </span>
+      </div>
+      <p className="pl-1 text-[10px] font-medium uppercase tracking-[0.64em] text-[#8d9289] md:text-[11px]">
+        Tecnologia
+      </p>
+    </div>
   );
 }
