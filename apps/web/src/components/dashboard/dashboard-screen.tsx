@@ -5,6 +5,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   CalendarDays,
+  ChevronDown,
   Clock3,
   CloudSun,
   Droplets,
@@ -64,6 +65,7 @@ interface DashboardNavItem {
 type HistoryStatusFilter = 'all' | 'on' | 'off';
 type HistoryModeFilter = 'all' | 'water' | 'movement';
 type HistoryPeriodPreset = 'custom' | '24h' | '7d' | '30d';
+type HistorySortOrder = 'recent' | 'oldest';
 
 interface HistoryFiltersForm {
   startDate: string;
@@ -110,6 +112,8 @@ export function DashboardScreen({
   );
   const [appliedHistoryFilters, setAppliedHistoryFilters] =
     useState<HistoryFiltersForm>(() => createEmptyHistoryFilters());
+  const [historySortOrder, setHistorySortOrder] =
+    useState<HistorySortOrder>('recent');
   const deferredSearch = useDeferredValue(search);
   const canManageFarms =
     user?.role === 'ADMIN' || user?.role === 'OPERATOR';
@@ -442,6 +446,22 @@ export function DashboardScreen({
   );
 
   const navItems = getDashboardNavItems(currentTab, currentFarmId);
+  const heroMobileContextLabel =
+    currentTab === 'historico'
+      ? historyPivot?.name ?? 'Selecione o pivo desejado'
+      : currentTab === 'mapa'
+        ? selectedFarm?.name ?? 'Visao operacional'
+        : currentTab === 'pivots'
+          ? selectedFarm?.name ?? 'Catalogo operacional'
+          : undefined;
+  const heroQuickAction =
+    currentTab === 'historico' && currentFarmId
+      ? {
+          href: buildDashboardHref('mapa', currentFarmId),
+          icon: MapPinned,
+          label: 'Mapa',
+        }
+      : null;
 
   return (
     <RequireAuth>
@@ -450,9 +470,14 @@ export function DashboardScreen({
           <DashboardSidebar navItems={navItems} />
 
           <div className="flex min-h-screen flex-col">
-            <DashboardHero currentTab={currentTab} onLogout={logout} />
+            <DashboardHero
+              currentTab={currentTab}
+              onLogout={logout}
+              mobileContextLabel={heroMobileContextLabel}
+              quickAction={heroQuickAction}
+            />
 
-            <div className="px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+            <div className="px-4 pb-28 pt-6 sm:px-6 sm:pb-30 lg:px-10 lg:py-8">
               <MobileDashboardNav navItems={navItems} />
 
               {error ? (
@@ -524,6 +549,8 @@ export function DashboardScreen({
                       onApplyFilters={applyHistoryFilters}
                       onClearFilters={clearHistoryFilters}
                       onApplyPeriodPreset={applyHistoryPeriodPreset}
+                      sortOrder={historySortOrder}
+                      onSortOrderChange={setHistorySortOrder}
                       cycleCount={filteredHistoryCycleCount}
                       waterStateCount={filteredHistoryWaterCount}
                     />
@@ -541,6 +568,8 @@ export function DashboardScreen({
             </div>
           </div>
         </div>
+
+        <MobileBottomDashboardNav navItems={navItems} />
       </main>
     </RequireAuth>
   );
@@ -1019,9 +1048,17 @@ function EmptyDashboardState({ message }: { message: string }) {
 function DashboardHero({
   currentTab,
   onLogout,
+  mobileContextLabel,
+  quickAction,
 }: {
   currentTab: DashboardTab;
   onLogout: () => void;
+  mobileContextLabel?: string;
+  quickAction?: {
+    href: string;
+    icon: LucideIcon;
+    label: string;
+  } | null;
 }) {
   const copy =
     currentTab === 'fazendas'
@@ -1057,19 +1094,31 @@ function DashboardHero({
         <div className="flex items-center justify-between gap-3 lg:hidden">
           <Link
             href="/"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/72 text-[#3b3e38] shadow-[0_12px_28px_rgba(74,70,47,0.12)] backdrop-blur-[2px]"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/72 text-[#3b3e38] shadow-[0_12px_28px_rgba(74,70,47,0.12)] backdrop-blur-[2px]"
           >
-            <ArrowLeft size={18} />
+            <ArrowLeft size={17} />
           </Link>
 
-          <button
-            type="button"
-            onClick={onLogout}
-            className="inline-flex items-center gap-2 rounded-full bg-white/74 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#556148] shadow-[0_12px_28px_rgba(74,70,47,0.12)] backdrop-blur-[2px]"
-          >
-            <LogOut size={14} />
-            Sair
-          </button>
+          <div className="flex items-center gap-2">
+            {quickAction ? (
+              <Link
+                href={quickAction.href}
+                className="inline-flex items-center gap-2 rounded-full bg-white/74 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#556148] shadow-[0_12px_28px_rgba(74,70,47,0.12)] backdrop-blur-[2px]"
+              >
+                <quickAction.icon size={14} />
+                {quickAction.label}
+              </Link>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={onLogout}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/74 text-[#556148] shadow-[0_12px_28px_rgba(74,70,47,0.12)] backdrop-blur-[2px]"
+              aria-label="Sair"
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="hidden items-center justify-end lg:flex">
@@ -1083,11 +1132,14 @@ function DashboardHero({
           </button>
         </div>
 
-        <div className="mt-5 max-w-[560px] rounded-[30px] bg-[#f3ead1]/64 px-5 py-5 shadow-[0_18px_40px_rgba(82,75,42,0.08)] backdrop-blur-[2px] lg:mt-0 lg:px-7 lg:py-4">
-          <h1 className="text-[48px] font-semibold leading-none text-[#303434] lg:text-[58px]">
+        <div className="mt-5 max-w-[560px] rounded-[28px] bg-[#f3ead1]/64 px-5 py-4 shadow-[0_18px_40px_rgba(82,75,42,0.08)] backdrop-blur-[2px] lg:mt-0 lg:rounded-[30px] lg:px-7 lg:py-4">
+          <h1 className="text-[26px] font-semibold leading-none text-[#303434] sm:text-[34px] lg:text-[58px]">
             {copy.title}
           </h1>
-          <p className="mt-1 text-[24px] font-medium text-[#4c4d47] lg:text-[22px]">
+          <p className="mt-1 text-[14px] font-medium text-[#4c4d47] sm:text-[16px] lg:hidden">
+            {mobileContextLabel ?? copy.subtitle}
+          </p>
+          <p className="mt-1 hidden text-[22px] font-medium text-[#4c4d47] lg:block">
             {copy.subtitle}
           </p>
         </div>
@@ -1169,7 +1221,7 @@ function DashboardBrand() {
 
 function MobileDashboardNav({ navItems }: { navItems: DashboardNavItem[] }) {
   return (
-    <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+    <div className="mb-6 hidden gap-2 overflow-x-auto pb-1 sm:flex lg:hidden">
       {navItems.map((item) => {
         const className = cn(
           'inline-flex min-w-max items-center gap-2 rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em]',
@@ -1195,6 +1247,49 @@ function MobileDashboardNav({ navItems }: { navItems: DashboardNavItem[] }) {
           </Link>
         );
       })}
+    </div>
+  );
+}
+
+function MobileBottomDashboardNav({
+  navItems,
+}: {
+  navItems: DashboardNavItem[];
+}) {
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-[#d0d8ae] bg-[#dbe2b7]/96 px-2 pt-2 shadow-[0_-10px_28px_rgba(87,101,53,0.12)] backdrop-blur-sm lg:hidden"
+      style={{
+        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 10px)',
+      }}
+    >
+      <div className="grid grid-cols-5 gap-1">
+        {navItems.map((item) => {
+          const className = cn(
+            'flex min-h-[60px] flex-col items-center justify-center rounded-[16px] px-1 text-[10px] font-medium tracking-[-0.01em] transition',
+            item.active
+              ? 'text-[#2a9348]'
+              : 'text-[#555a50]',
+            item.disabled && 'opacity-60',
+          );
+
+          if (item.disabled || !item.href) {
+            return (
+              <span key={item.label} className={className}>
+                <item.icon size={20} strokeWidth={1.85} />
+                <span className="mt-1 text-center">{item.label}</span>
+              </span>
+            );
+          }
+
+          return (
+            <Link key={item.label} href={item.href} className={className}>
+              <item.icon size={20} strokeWidth={1.85} />
+              <span className="mt-1 text-center">{item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1429,6 +1524,43 @@ function getFarmLocationLabel(farm: Farm) {
   })}`;
 }
 
+function formatDirectionLabel(direction: PivotState['direction']) {
+  if (direction === 'CLOCKWISE') {
+    return 'Horario';
+  }
+
+  if (direction === 'COUNTER_CLOCKWISE') {
+    return 'Anti-horario';
+  }
+
+  return 'Parado';
+}
+
+function getHistoryStateLabel(state: PivotState) {
+  if (!state.isOn) {
+    return 'Desligado';
+  }
+
+  return state.isIrrigating ? 'Ligado com agua' : 'Ligado sem agua';
+}
+
+function getHistoryStateDotClass(state: PivotState) {
+  if (!state.isOn) {
+    return 'bg-[#8b8b85]';
+  }
+
+  return state.isIrrigating ? 'bg-[#1fb6ea]' : 'bg-[#94ad4f]';
+}
+
+function formatCompactDateTime(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
 function getPivotLastUpdateLabel(pivot: Pivot) {
   const lastStateTimestamp = pivot.states[0]?.timestamp;
 
@@ -1629,6 +1761,8 @@ function DashboardHistoryView({
   onApplyFilters,
   onClearFilters,
   onApplyPeriodPreset,
+  sortOrder,
+  onSortOrderChange,
   cycleCount,
   waterStateCount,
 }: {
@@ -1645,9 +1779,21 @@ function DashboardHistoryView({
   onApplyPeriodPreset: (
     preset: Exclude<HistoryPeriodPreset, 'custom'>,
   ) => void;
+  sortOrder: HistorySortOrder;
+  onSortOrderChange: (value: HistorySortOrder) => void;
   cycleCount: number;
   waterStateCount: number;
 }) {
+  const sortedStates = useMemo(() => {
+    const states = [...(pivot?.states ?? [])];
+
+    if (sortOrder === 'oldest') {
+      return states.reverse();
+    }
+
+    return states;
+  }, [pivot?.states, sortOrder]);
+
   return (
     <div className="space-y-4">
       <HistoryFilterPanel
@@ -1660,9 +1806,56 @@ function DashboardHistoryView({
         onApplyPeriodPreset={onApplyPeriodPreset}
       />
 
+      <div className="grid gap-3 lg:hidden">
+        <Card className="bg-[#fffef8]">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+            <div>
+              <label
+                htmlFor="history-pivot-mobile"
+                className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#738264]"
+              >
+                Pivo
+              </label>
+              <select
+                id="history-pivot-mobile"
+                value={selectedPivotId ?? ''}
+                onChange={(event) => onSelect(event.target.value)}
+                className="mt-2 h-12 w-full rounded-[16px] border border-[#dbe3ca] bg-white px-4 text-sm text-[#22311d] outline-none focus:border-[#7eb85f] focus:ring-2 focus:ring-[#7eb85f]/20"
+              >
+                {pivots.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="history-sort-mobile"
+                className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#738264]"
+              >
+                Filtrar por
+              </label>
+              <select
+                id="history-sort-mobile"
+                value={sortOrder}
+                onChange={(event) =>
+                  onSortOrderChange(event.target.value as HistorySortOrder)
+                }
+                className="mt-2 h-12 w-full rounded-[16px] border border-[#dbe3ca] bg-white px-4 text-sm text-[#22311d] outline-none focus:border-[#7eb85f] focus:ring-2 focus:ring-[#7eb85f]/20"
+              >
+                <option value="recent">Mais recentes</option>
+                <option value="oldest">Mais antigos</option>
+              </select>
+            </div>
+          </div>
+        </Card>
+      </div>
+
       <div className="space-y-4 lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start lg:gap-4 lg:space-y-0">
         <div className="space-y-4 lg:sticky lg:top-6">
-          <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
+          <div className="hidden gap-2 overflow-x-auto pb-1 lg:flex lg:flex-col lg:overflow-visible">
             {pivots.map((item) => (
               <button
                 key={item.id}
@@ -1731,62 +1924,142 @@ function DashboardHistoryView({
                 </div>
               </Card>
 
-              <HistoryChart pivot={pivot} />
+              <HistoryOverviewPanel pivot={pivot} />
 
-              {pivot.states.length === 0 ? (
+              <div className="hidden lg:block">
+                <HistoryChart pivot={pivot} />
+              </div>
+
+              {sortedStates.length === 0 ? (
                 <EmptyDashboardState message="Nenhum registro encontrado para os filtros selecionados." />
               ) : (
-                <div className="grid gap-3 xl:grid-cols-2">
-                  {pivot.states.slice(0, 4).map((state) => {
-                    const lastCycle = state.cycles[0];
-
-                    return (
-                      <Card key={state.id} className="bg-[#fffef8]">
-                        <div className="flex items-start justify-between gap-3">
+                <>
+                  <div className="space-y-3 lg:hidden">
+                    {sortedStates.map((state) => (
+                      <details
+                        key={state.id}
+                        className="overflow-hidden rounded-[20px] bg-[#2f9446] text-white shadow-[0_18px_32px_rgba(35,120,56,0.22)]"
+                      >
+                        <summary className="flex cursor-pointer list-none items-start justify-between gap-4 bg-[#58ad69] px-4 py-4 [&::-webkit-details-marker]:hidden">
                           <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#738264]">
-                              Registro
+                            <p className="text-[24px] font-semibold leading-none">
+                              {pivot.name}
                             </p>
-                            <p className="mt-1 text-sm font-semibold text-[#22311d]">
-                              {formatDate(state.timestamp)}
+                            <p className="mt-2 text-sm text-white/92">
+                              Inicio: {formatCompactDateTime(state.timestamp)}
+                            </p>
+                            <p className="mt-1 text-sm text-white/92">
+                              Termino:{' '}
+                              {state.endedAt
+                                ? formatCompactDateTime(state.endedAt)
+                                : 'Em curso'}
                             </p>
                           </div>
-                          <Badge tone={state.endedAt ? 'neutral' : 'success'}>
-                            {state.endedAt ? 'Fechado' : 'Em curso'}
-                          </Badge>
-                        </div>
 
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <HistoryStateChip
-                            active={state.isOn}
-                            label={state.isOn ? 'Ligado' : 'Parado'}
-                          />
-                          <HistoryStateChip
-                            active={state.isIrrigating}
-                            label={state.isIrrigating ? 'Com agua' : 'Movimento'}
-                          />
-                        </div>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/92">
+                            Mais detalhes
+                            <ChevronDown size={14} />
+                          </span>
+                        </summary>
 
-                        <div className="mt-4 grid grid-cols-2 gap-2">
-                          <MapMetric
-                            icon={Gauge}
-                            label="Angulo"
-                            value={`${formatNumber(lastCycle?.angle ?? 0, {
-                              maximumFractionDigits: 1,
-                            })} deg`}
+                        <div className="grid gap-3 px-4 py-4 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">
+                              Estado
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <HistoryStateChip
+                                active={state.isOn}
+                                label={state.isOn ? 'Ligado' : 'Parado'}
+                              />
+                              <HistoryStateChip
+                                active={state.isIrrigating}
+                                label={
+                                  state.isIrrigating ? 'Com agua' : 'Movimento'
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">
+                              Sentido
+                            </p>
+                            <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-white">
+                              <HistoryDirectionIcon direction={state.direction} />
+                              {formatDirectionLabel(state.direction)}
+                            </div>
+                          </div>
+
+                          <MobileHistoryMetric
+                            label="Percentimetro"
+                            value={`${formatNumber(state.cycles[0]?.percentimeter ?? 0, {
+                              maximumFractionDigits: 0,
+                            })}%`}
                           />
-                          <MapMetric
-                            icon={Waves}
+                          <MobileHistoryMetric
                             label="Lamina"
-                            value={`${formatNumber(lastCycle?.appliedBlade ?? 0, {
+                            value={`${formatNumber(state.cycles[0]?.appliedBlade ?? 0, {
                               maximumFractionDigits: 1,
                             })} mm`}
                           />
                         </div>
-                      </Card>
-                    );
-                  })}
-                </div>
+                      </details>
+                    ))}
+                  </div>
+
+                  <div className="hidden gap-3 xl:grid xl:grid-cols-2">
+                    {sortedStates.slice(0, 4).map((state) => {
+                      const lastCycle = state.cycles[0];
+
+                      return (
+                        <Card key={state.id} className="bg-[#fffef8]">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#738264]">
+                                Registro
+                              </p>
+                              <p className="mt-1 text-sm font-semibold text-[#22311d]">
+                                {formatDate(state.timestamp)}
+                              </p>
+                            </div>
+                            <Badge tone={state.endedAt ? 'neutral' : 'success'}>
+                              {state.endedAt ? 'Fechado' : 'Em curso'}
+                            </Badge>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <HistoryStateChip
+                              active={state.isOn}
+                              label={state.isOn ? 'Ligado' : 'Parado'}
+                            />
+                            <HistoryStateChip
+                              active={state.isIrrigating}
+                              label={state.isIrrigating ? 'Com agua' : 'Movimento'}
+                            />
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            <MapMetric
+                              icon={Gauge}
+                              label="Angulo"
+                              value={`${formatNumber(lastCycle?.angle ?? 0, {
+                                maximumFractionDigits: 1,
+                              })} deg`}
+                            />
+                            <MapMetric
+                              icon={Waves}
+                              label="Lamina"
+                              value={`${formatNumber(lastCycle?.appliedBlade ?? 0, {
+                                maximumFractionDigits: 1,
+                              })} mm`}
+                            />
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </>
           ) : null}
@@ -1794,6 +2067,265 @@ function DashboardHistoryView({
       </div>
     </div>
   );
+}
+
+function HistoryOverviewPanel({ pivot }: { pivot: Pivot }) {
+  const latestState = pivot.states[0] ?? null;
+  const latestCycle = latestState?.cycles[0] ?? null;
+  const timelineStates = pivot.states.slice(0, 3);
+  const visualPercentimeter =
+    latestCycle?.percentimeter ?? pivot.live.percentimeter;
+  const visualAngle = latestCycle?.angle ?? pivot.live.angle;
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_360px]">
+      <Card className="bg-[#fffef8]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6f7f63]">
+              Resumo operacional
+            </p>
+            <h3 className="mt-2 text-[28px] font-semibold leading-none text-[#22311d]">
+              {latestState
+                ? latestState.isOn
+                  ? 'Ligado'
+                  : 'Desligado'
+                : 'Sem leitura'}
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-[#5e6d54]">
+              {latestState
+                ? formatDate(latestState.timestamp)
+                : 'Aguardando historico do pivot'}
+            </p>
+          </div>
+
+          {latestState ? (
+            <Badge tone={latestState.endedAt ? 'neutral' : 'success'}>
+              {latestState.endedAt ? 'Registro fechado' : 'Em curso'}
+            </Badge>
+          ) : null}
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <HistorySummaryMetric
+            label="Estado"
+            value={latestState ? getHistoryStateLabel(latestState) : '--'}
+          />
+          <HistorySummaryMetric
+            label="Percentimetro"
+            value={`${formatNumber(visualPercentimeter, {
+              maximumFractionDigits: 0,
+            })}%`}
+          />
+          <HistorySummaryMetric
+            label="Sentido"
+            value={latestState ? formatDirectionLabel(latestState.direction) : '--'}
+          />
+        </div>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <HistorySummaryMetric
+            label="Angulo"
+            value={`${formatNumber(visualAngle, {
+              maximumFractionDigits: 1,
+            })} deg`}
+          />
+          <HistorySummaryMetric
+            label="Lamina"
+            value={`${formatNumber(latestCycle?.appliedBlade ?? 0, {
+              maximumFractionDigits: 1,
+            })} mm`}
+          />
+          <HistorySummaryMetric
+            label="Termino"
+            value={
+              latestState?.endedAt
+                ? formatCompactDateTime(latestState.endedAt)
+                : 'Em curso'
+            }
+          />
+        </div>
+
+        <div className="mt-6">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6f7f63]">
+            Linha do tempo recente
+          </p>
+          <div className="mt-4 space-y-4">
+            {timelineStates.map((state, index) => (
+              <HistoryTimelineRow
+                key={state.id}
+                state={state}
+                showConnector={index < timelineStates.length - 1}
+              />
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      <Card className="bg-[#fffef8]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6f7f63]">
+              Leitura visual
+            </p>
+            <h3 className="mt-2 text-[24px] font-semibold leading-none text-[#22311d]">
+              Roda e legenda
+            </h3>
+          </div>
+
+          <span className="rounded-full bg-[#eef4db] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#597546]">
+            {pivot.name}
+          </span>
+        </div>
+
+        <div className="mt-5 flex justify-center">
+          <PivotWheel
+            angle={visualAngle}
+            percentimeter={visualPercentimeter}
+            size={158}
+            tileClassName="rounded-[30px] bg-[#7d6240]/92 p-3.5 shadow-[0_20px_34px_rgba(63,48,29,0.2)]"
+          />
+        </div>
+
+        <div className="mt-5 space-y-3">
+          <HistoryLegendRow
+            colorClass="bg-[#1fb6ea]"
+            label="Ligado com agua"
+            value={latestState?.isOn && latestState.isIrrigating ? 'Atual' : '--'}
+          />
+          <HistoryLegendRow
+            colorClass="bg-[#94ad4f]"
+            label="Ligado sem agua"
+            value={
+              latestState?.isOn && !latestState.isIrrigating ? 'Atual' : '--'
+            }
+          />
+          <HistoryLegendRow
+            colorClass="bg-[#8b8b85]"
+            label="Desligado"
+            value={!latestState?.isOn ? 'Atual' : '--'}
+          />
+          <HistoryLegendRow
+            colorClass="bg-[#1f1f1f]"
+            label="Sentido"
+            value={latestState ? formatDirectionLabel(latestState.direction) : '--'}
+          />
+          <HistoryLegendRow
+            colorClass="bg-[#e14848]"
+            label="Fim do ciclo"
+            value={latestState?.endedAt ? formatCompactDateTime(latestState.endedAt) : 'Em curso'}
+          />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function MobileHistoryMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-[18px] bg-white/10 px-3 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">
+        {label}
+      </p>
+      <p className="mt-1 text-base font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function HistorySummaryMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-[18px] bg-[#f1f5df] px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#708062]">
+        {label}
+      </p>
+      <p className="mt-1 text-base font-semibold text-[#22311d]">{value}</p>
+    </div>
+  );
+}
+
+function HistoryTimelineRow({
+  state,
+  showConnector,
+}: {
+  state: PivotState;
+  showConnector: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[74px_22px_minmax(0,1fr)] gap-4">
+      <div className="pt-0.5 text-right text-sm font-semibold text-[#299247]">
+        {formatTimeInputValue(new Date(state.timestamp))}
+      </div>
+
+      <div className="relative flex justify-center">
+        <span
+          className={cn(
+            'relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-white shadow-[0_0_0_2px_rgba(255,255,255,0.4)]',
+            getHistoryStateDotClass(state),
+          )}
+        />
+        {showConnector ? (
+          <span className="absolute top-5 h-[calc(100%+0.75rem)] w-[3px] rounded-full bg-[#3bb6e4]" />
+        ) : null}
+      </div>
+
+      <div>
+        <p className="text-base font-semibold text-[#299247]">
+          {getHistoryStateLabel(state)}
+        </p>
+        <p className="mt-1 text-sm leading-6 text-[#5e6d54]">
+          {state.isOn ? 'Avanco' : 'Parado'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function HistoryLegendRow({
+  colorClass,
+  label,
+  value,
+}: {
+  colorClass: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <div className="flex items-center gap-2 text-[#5f6d54]">
+        <span className={cn('h-3.5 w-3.5 rounded-full', colorClass)} />
+        <span>{label}</span>
+      </div>
+      <span className="font-semibold text-[#22311d]">{value}</span>
+    </div>
+  );
+}
+
+function HistoryDirectionIcon({
+  direction,
+}: {
+  direction: PivotState['direction'];
+}) {
+  if (direction === 'CLOCKWISE') {
+    return <RotateCw size={18} />;
+  }
+
+  if (direction === 'COUNTER_CLOCKWISE') {
+    return <RotateCcw size={18} />;
+  }
+
+  return <Clock3 size={18} />;
 }
 
 function HistoryFilterPanel({

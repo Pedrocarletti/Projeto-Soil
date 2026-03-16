@@ -20,9 +20,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const canSubmit = Boolean(email.trim() && password.trim());
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!canSubmit) {
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -164,9 +169,14 @@ export default function LoginPage() {
 
             <div className="mt-14 flex w-full flex-1 flex-col items-center justify-end gap-6 pb-8 md:mt-20 md:pb-4">
               <Button
-                className="h-12 w-full max-w-[286px] rounded-full border-none bg-[#e8edf4] text-[24px] font-semibold text-[#7e8ca4] shadow-[0_22px_44px_rgba(220,226,234,0.9)] hover:bg-[#dde5ee] hover:text-[#728198]"
+                className={cn(
+                  'h-12 w-full max-w-[286px] rounded-full border-none text-[24px] font-semibold shadow-[0_22px_44px_rgba(220,226,234,0.9)]',
+                  canSubmit
+                    ? 'bg-[#2f9446] text-white shadow-[0_22px_44px_rgba(47,148,70,0.28)] hover:bg-[#25773a] hover:text-white'
+                    : 'bg-[#e8edf4] text-[#7e8ca4] hover:bg-[#dde5ee] hover:text-[#728198]',
+                )}
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !canSubmit}
               >
                 {isSubmitting ? 'Entrando...' : 'Entrar'}
               </Button>
