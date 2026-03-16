@@ -227,7 +227,7 @@ export default function LoginPage() {
             </div>
           </form>
 
-          <div className="relative z-10 mt-2 flex w-full items-end justify-start md:absolute md:bottom-10 md:left-12 md:right-12">
+          <div className="pointer-events-none relative z-10 mt-2 flex w-fit max-w-full items-end justify-start md:absolute md:bottom-10 md:left-12">
             <SoilWordmark />
           </div>
         </section>
