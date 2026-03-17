@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
@@ -38,36 +39,8 @@ interface NavItem {
   disabled?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  {
-    href: '/dashboard?tab=pivots',
-    icon: House,
-    label: 'Fazendas',
-  },
-  {
-    href: '/dashboard?tab=pivots',
-    icon: Sprout,
-    label: 'Pivos',
-    active: true,
-  },
-  {
-    icon: CalendarDays,
-    label: 'Agenda',
-    disabled: true,
-  },
-  {
-    href: '/dashboard?tab=historico',
-    icon: History,
-    label: 'Historico',
-  },
-  {
-    href: '/dashboard?tab=mapa',
-    icon: MapPinned,
-    label: 'Mapa',
-  },
-];
-
 export function PivotDetailScreen({ pivotId }: { pivotId: string }) {
+  const router = useRouter();
   const { token } = useAuth();
   const [pivot, setPivot] = useState<Pivot | null>(null);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
@@ -116,6 +89,47 @@ export function PivotDetailScreen({ pivotId }: { pivotId: string }) {
   });
 
   const lastState = useMemo(() => pivot?.states[0] ?? null, [pivot]);
+  const dashboardFarmId = pivot?.farmId ?? null;
+  const navItems = useMemo<NavItem[]>(
+    () => [
+      {
+        href: '/dashboard?tab=fazendas',
+        icon: House,
+        label: 'Fazendas',
+      },
+      {
+        href: buildPivotDashboardHref('pivots', dashboardFarmId),
+        icon: Sprout,
+        label: 'Pivos',
+        active: true,
+      },
+      {
+        icon: CalendarDays,
+        label: 'Agenda',
+        disabled: true,
+      },
+      {
+        href: buildPivotDashboardHref('historico', dashboardFarmId),
+        icon: History,
+        label: 'Historico',
+      },
+      {
+        href: buildPivotDashboardHref('mapa', dashboardFarmId),
+        icon: MapPinned,
+        label: 'Mapa',
+      },
+    ],
+    [dashboardFarmId],
+  );
+
+  const handleBackNavigation = useCallback(() => {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    router.replace(buildPivotDashboardHref('pivots', dashboardFarmId));
+  }, [dashboardFarmId, router]);
 
   const scrollToMoreInfo = useCallback(() => {
     document
@@ -127,13 +141,17 @@ export function PivotDetailScreen({ pivotId }: { pivotId: string }) {
     <RequireAuth>
       <main className="min-h-screen bg-[#151513] lg:p-1">
         <div className="min-h-screen bg-[#dbdbd7] lg:grid lg:grid-cols-[304px_minmax(0,1fr)]">
-          <DetailSidebar navItems={NAV_ITEMS} />
+          <DetailSidebar navItems={navItems} onBack={handleBackNavigation} />
 
           <div className="flex min-h-screen flex-col">
-            <PivotHero pivot={pivot} onReload={reload} />
+            <PivotHero
+              pivot={pivot}
+              onBack={handleBackNavigation}
+              onReload={reload}
+            />
 
             <div className="px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
-              <MobileNav navItems={NAV_ITEMS} />
+              <MobileNav navItems={navItems} />
 
               {error ? (
                 <p className="rounded-[22px] border border-[#efc7c7] bg-[#fff3f3] px-4 py-3 text-sm text-[#ae4343]">
@@ -309,9 +327,11 @@ export function PivotDetailScreen({ pivotId }: { pivotId: string }) {
 }
 
 function PivotHero({
+  onBack,
   pivot,
   onReload,
 }: {
+  onBack: () => void;
   pivot: Pivot | null;
   onReload: () => void;
 }) {
@@ -326,12 +346,13 @@ function PivotHero({
 
       <div className="relative px-4 pb-8 pt-5 sm:px-6 lg:px-10 lg:pb-10 lg:pt-8">
         <div className="flex items-center justify-between gap-3 lg:hidden">
-          <Link
-            href="/dashboard?tab=pivots"
+          <button
+            type="button"
+            onClick={onBack}
             className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/72 text-[#3b3e38] shadow-[0_12px_28px_rgba(74,70,47,0.12)] backdrop-blur-[2px]"
           >
             <ArrowLeft size={18} />
-          </Link>
+          </button>
 
           <button
             type="button"
@@ -385,16 +406,23 @@ function PivotHero({
   );
 }
 
-function DetailSidebar({ navItems }: { navItems: NavItem[] }) {
+function DetailSidebar({
+  navItems,
+  onBack,
+}: {
+  navItems: NavItem[];
+  onBack: () => void;
+}) {
   return (
     <aside className="hidden min-h-screen flex-col bg-[#d2d9b4] text-[#444843] lg:flex">
       <div className="px-7 pt-6">
-        <Link
-          href="/dashboard?tab=pivots"
+        <button
+          type="button"
+          onClick={onBack}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#3d403a] transition hover:bg-white/35"
         >
           <ArrowLeft size={24} />
-        </Link>
+        </button>
       </div>
 
       <nav className="mt-5 border-y border-white/42">
@@ -649,4 +677,17 @@ function getDirectionLabel(direction: string) {
   }
 
   return 'Parado';
+}
+
+function buildPivotDashboardHref(
+  tab: 'pivots' | 'historico' | 'mapa',
+  farmId?: string | null,
+) {
+  const params = new URLSearchParams({ tab });
+
+  if (farmId) {
+    params.set('farmId', farmId);
+  }
+
+  return `/dashboard?${params.toString()}`;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
@@ -34,6 +35,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { WeatherCard } from '@/components/weather/weather-card';
 import {
+  createPivot,
   createFarm,
   deleteFarm,
   getFarms,
@@ -46,6 +48,7 @@ import { cn, formatDate, formatNumber } from '@/lib/utils';
 import { useRealtimePivots } from '@/hooks/use-realtime-pivots';
 import type {
   Farm,
+  FarmPivotSummary,
   FarmRecord,
   Pivot,
   PivotState,
@@ -83,6 +86,14 @@ interface FarmFormValues {
   longitude: string;
 }
 
+interface PivotFormValues {
+  name: string;
+  code: string;
+  latitude: string;
+  longitude: string;
+  bladeAt100: string;
+}
+
 export function DashboardScreen({
   initialTab = 'pivots',
   initialFarmId,
@@ -90,6 +101,7 @@ export function DashboardScreen({
   initialTab?: DashboardTab;
   initialFarmId?: string;
 }) {
+  const router = useRouter();
   const { token, user, logout } = useAuth();
   const currentTab = initialTab;
   const currentFarmId = initialFarmId ?? null;
@@ -103,6 +115,9 @@ export function DashboardScreen({
   const [editingFarmId, setEditingFarmId] = useState<string | null>(null);
   const [isSavingFarm, setIsSavingFarm] = useState(false);
   const [isDeletingFarmId, setIsDeletingFarmId] = useState<string | null>(null);
+  const [pivotError, setPivotError] = useState<string | null>(null);
+  const [pivotForm, setPivotForm] = useState<PivotFormValues>(() => createEmptyPivotForm());
+  const [isSavingPivot, setIsSavingPivot] = useState(false);
   const [mapPivotId, setMapPivotId] = useState<string | null>(null);
   const [historyPivotId, setHistoryPivotId] = useState<string | null>(null);
   const [historyStates, setHistoryStates] = useState<PivotState[]>([]);
@@ -144,7 +159,7 @@ export function DashboardScreen({
           : pivotsResponse;
         const firstRelevantPivot = nextFarmPivots[0] ?? pivotsResponse[0];
 
-        setFarms(sortFarmRecords(farmsResponse));
+        setFarms(sortFarmRecords(normalizeFarmRecords(farmsResponse)));
         setPivots(pivotsResponse);
         setMapPivotId((current) => current ?? firstRelevantPivot?.id ?? null);
         setHistoryPivotId((current) => current ?? firstRelevantPivot?.id ?? null);
@@ -175,6 +190,11 @@ export function DashboardScreen({
 
   const selectedFarm =
     farms.find((farm) => farm.id === currentFarmId) ?? null;
+
+  useEffect(() => {
+    setPivotError(null);
+    setPivotForm(createEmptyPivotForm(selectedFarm));
+  }, [selectedFarm]);
 
   const hasActiveHistoryFilters = useMemo(
     () => historyFiltersAreActive(appliedHistoryFilters),
@@ -225,6 +245,13 @@ export function DashboardScreen({
     }));
   }
 
+  function updatePivotForm(patch: Partial<PivotFormValues>) {
+    setPivotForm((current) => ({
+      ...current,
+      ...patch,
+    }));
+  }
+
   function startCreateFarm() {
     setFarmError(null);
     setEditingFarmId(null);
@@ -239,6 +266,14 @@ export function DashboardScreen({
       latitude: String(farm.latitude),
       longitude: String(farm.longitude),
     });
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById('farm-editor-card')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.setTimeout(() => {
+        document.getElementById('farm-name')?.focus();
+      }, 120);
+    });
   }
 
   function cancelFarmEditing() {
@@ -247,17 +282,24 @@ export function DashboardScreen({
     setFarmForm(createEmptyFarmForm());
   }
 
+  function handleBackNavigation() {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    router.replace(buildDashboardHref('fazendas'));
+  }
+
   async function submitFarmForm() {
     if (!token) {
       return;
     }
 
-    const payload = parseFarmForm(farmForm);
+    const parsedFarmForm = parseFarmForm(farmForm);
 
-    if (!payload) {
-      setFarmError(
-        'Preencha nome, latitude e longitude com valores numericos validos.',
-      );
+    if (!parsedFarmForm.ok) {
+      setFarmError(parsedFarmForm.error);
       return;
     }
 
@@ -265,9 +307,10 @@ export function DashboardScreen({
       setIsSavingFarm(true);
       setFarmError(null);
 
-      const savedFarm = editingFarmId
-        ? await updateFarm(editingFarmId, token, payload)
-        : await createFarm(token, payload);
+      const savedFarmResponse = editingFarmId
+        ? await updateFarm(editingFarmId, token, parsedFarmForm.data)
+        : await createFarm(token, parsedFarmForm.data);
+      const savedFarm = normalizeFarmRecord(savedFarmResponse);
 
       setFarms((currentFarms) =>
         sortFarmRecords(
@@ -276,6 +319,21 @@ export function DashboardScreen({
                 farm.id === editingFarmId ? savedFarm : farm,
               )
             : [...currentFarms, savedFarm],
+        ),
+      );
+      setPivots((currentPivots) =>
+        currentPivots.map((pivot) =>
+          pivot.farmId === savedFarm.id
+            ? {
+                ...pivot,
+                farm: {
+                  ...pivot.farm,
+                  name: savedFarm.name,
+                  latitude: savedFarm.latitude,
+                  longitude: savedFarm.longitude,
+                },
+              }
+            : pivot,
         ),
       );
       setEditingFarmId(null);
@@ -289,6 +347,13 @@ export function DashboardScreen({
 
   async function handleDeleteFarm(farm: FarmRecord) {
     if (!token) {
+      return;
+    }
+
+    if (farm.pivots.length > 0) {
+      setFarmError(
+        'Remova ou transfira os pivots vinculados antes de excluir a fazenda.',
+      );
       return;
     }
 
@@ -307,15 +372,72 @@ export function DashboardScreen({
       setFarms((currentFarms) =>
         currentFarms.filter((currentFarm) => currentFarm.id !== farm.id),
       );
+      setPivots((currentPivots) =>
+        currentPivots.filter((pivot) => pivot.farmId !== farm.id),
+      );
 
       if (editingFarmId === farm.id) {
         setEditingFarmId(null);
         setFarmForm(createEmptyFarmForm());
       }
+
+      if (currentFarmId === farm.id) {
+        router.replace(buildDashboardHref('fazendas'));
+      }
     } catch (deleteError) {
       setFarmError((deleteError as Error).message);
     } finally {
       setIsDeletingFarmId(null);
+    }
+  }
+
+  async function submitPivotForm() {
+    if (!token || !selectedFarm) {
+      return;
+    }
+
+    const parsedPivotForm = parsePivotForm(pivotForm, selectedFarm.id);
+
+    if (!parsedPivotForm.ok) {
+      setPivotError(parsedPivotForm.error);
+      return;
+    }
+
+    try {
+      setIsSavingPivot(true);
+      setPivotError(null);
+
+      const savedPivot = await createPivot(token, parsedPivotForm.data);
+
+      setPivots((currentPivots) =>
+        sortPivots([...currentPivots, savedPivot]),
+      );
+      setFarms((currentFarms) =>
+        sortFarmRecords(
+          currentFarms.map((farm) =>
+            farm.id === selectedFarm.id
+              ? {
+                  ...farm,
+                  pivots: sortFarmPivotSummaries([
+                    ...farm.pivots,
+                    {
+                      id: savedPivot.id,
+                      name: savedPivot.name,
+                      code: savedPivot.code,
+                    },
+                  ]),
+                }
+              : farm,
+          ),
+        ),
+      );
+      setMapPivotId(savedPivot.id);
+      setHistoryPivotId(savedPivot.id);
+      setPivotForm(createEmptyPivotForm(selectedFarm));
+    } catch (saveError) {
+      setPivotError((saveError as Error).message);
+    } finally {
+      setIsSavingPivot(false);
     }
   }
 
@@ -473,6 +595,7 @@ export function DashboardScreen({
             <DashboardHero
               currentTab={currentTab}
               onLogout={logout}
+              onBack={handleBackNavigation}
               mobileContextLabel={heroMobileContextLabel}
               quickAction={heroQuickAction}
             />
@@ -507,9 +630,15 @@ export function DashboardScreen({
               {currentTab === 'pivots' ? (
                 <PivotCatalogView
                   selectedFarm={selectedFarm}
+                  canManage={canManageFarms}
+                  pivotForm={pivotForm}
+                  pivotError={pivotError}
+                  isSavingPivot={isSavingPivot}
                   pivots={filteredPivots}
                   search={search}
                   onSearchChange={setSearch}
+                  onPivotFormChange={updatePivotForm}
+                  onSubmitPivot={submitPivotForm}
                 />
               ) : null}
 
@@ -672,7 +801,10 @@ function FarmCatalogView({
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {farms.map((farm) => (
+        {farms.map((farm) => {
+          const cannotDelete = farm.pivots.length > 0;
+
+          return (
           <article
             key={farm.id}
             className="rounded-[20px] bg-[#259640] px-5 py-5 text-white shadow-[0_16px_32px_rgba(35,120,56,0.24)]"
@@ -699,7 +831,7 @@ function FarmCatalogView({
             <div className="mt-5 flex flex-wrap items-center gap-2">
               <Link
                 href={buildDashboardHref('pivots', farm.id)}
-                className="inline-flex rounded-full bg-[#edf7df] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#215b30] shadow-[0_10px_18px_rgba(17,61,30,0.12)] transition hover:bg-white"
+                className="inline-flex rounded-full bg-[#183f24] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-[0_10px_18px_rgba(17,61,30,0.16)] transition hover:bg-[#102d19]"
               >
                 Abrir fazenda
               </Link>
@@ -722,17 +854,27 @@ function FarmCatalogView({
                   <button
                     type="button"
                     onClick={() => void onDeleteFarm(farm)}
-                    disabled={isDeletingFarmId === farm.id}
-                    className="inline-flex items-center rounded-full bg-[#1d6e31] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-[#155425] disabled:opacity-60"
+                    disabled={isDeletingFarmId === farm.id || cannotDelete}
+                    title={
+                      cannotDelete
+                        ? 'Remova ou transfira os pivots vinculados antes de excluir a fazenda.'
+                        : undefined
+                    }
+                    className="inline-flex items-center rounded-full bg-[#1d6e31] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-[#155425] disabled:cursor-not-allowed disabled:bg-[#6d8d75] disabled:opacity-75"
                   >
                     <Trash2 size={14} className="mr-2" />
-                    {isDeletingFarmId === farm.id ? 'Excluindo...' : 'Excluir'}
+                    {isDeletingFarmId === farm.id
+                      ? 'Excluindo...'
+                      : cannotDelete
+                        ? 'Com pivôs'
+                        : 'Excluir'}
                   </button>
                 </>
               ) : null}
             </div>
           </article>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -816,13 +958,23 @@ function FarmEditorCard({
           <Input
             id="farm-latitude"
             inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
             value={farmForm.latitude}
             onChange={(event) =>
               onFarmFormChange({ latitude: event.target.value })
             }
+            onBlur={(event) =>
+              onFarmFormChange({
+                latitude: normalizeCoordinateInput(event.target.value),
+              })
+            }
             className="mt-2 h-12 rounded-[16px]"
-            placeholder="-19.9167"
+            placeholder="Ex.: -22,1234"
           />
+          <p className="mt-2 text-xs leading-5 text-[#75826b]">
+            Use graus decimais. No Brasil a latitude costuma ser negativa.
+          </p>
         </div>
 
         <div>
@@ -835,13 +987,23 @@ function FarmEditorCard({
           <Input
             id="farm-longitude"
             inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
             value={farmForm.longitude}
             onChange={(event) =>
               onFarmFormChange({ longitude: event.target.value })
             }
+            onBlur={(event) =>
+              onFarmFormChange({
+                longitude: normalizeCoordinateInput(event.target.value),
+              })
+            }
             className="mt-2 h-12 rounded-[16px]"
-            placeholder="-43.9345"
+            placeholder="Ex.: -45,9876"
           />
+          <p className="mt-2 text-xs leading-5 text-[#75826b]">
+            Pode digitar com virgula ou ponto. A longitude do Brasil tambem costuma ser negativa.
+          </p>
         </div>
 
         <Button
@@ -870,14 +1032,26 @@ function FarmEditorCard({
 
 function PivotCatalogView({
   selectedFarm,
+  canManage,
+  pivotForm,
+  pivotError,
+  isSavingPivot,
   pivots,
   search,
   onSearchChange,
+  onPivotFormChange,
+  onSubmitPivot,
 }: {
   selectedFarm: Farm | null;
+  canManage: boolean;
+  pivotForm: PivotFormValues;
+  pivotError: string | null;
+  isSavingPivot: boolean;
   pivots: Pivot[];
   search: string;
   onSearchChange: (value: string) => void;
+  onPivotFormChange: (patch: Partial<PivotFormValues>) => void;
+  onSubmitPivot: () => Promise<void>;
 }) {
   return (
     <section>
@@ -894,6 +1068,17 @@ function PivotCatalogView({
             Trocar fazenda
           </Link>
         </div>
+      ) : null}
+
+      {selectedFarm && canManage ? (
+        <PivotEditorCard
+          farm={selectedFarm}
+          pivotForm={pivotForm}
+          pivotError={pivotError}
+          isSavingPivot={isSavingPivot}
+          onPivotFormChange={onPivotFormChange}
+          onSubmitPivot={onSubmitPivot}
+        />
       ) : null}
 
       <div className="mx-auto mt-2 max-w-[430px]">
@@ -927,6 +1112,176 @@ function PivotCatalogView({
         </div>
       )}
     </section>
+  );
+}
+
+function PivotEditorCard({
+  farm,
+  pivotForm,
+  pivotError,
+  isSavingPivot,
+  onPivotFormChange,
+  onSubmitPivot,
+}: {
+  farm: Farm;
+  pivotForm: PivotFormValues;
+  pivotError: string | null;
+  isSavingPivot: boolean;
+  onPivotFormChange: (patch: Partial<PivotFormValues>) => void;
+  onSubmitPivot: () => Promise<void>;
+}) {
+  return (
+    <Card className="mx-auto mt-4 max-w-[1180px] bg-[#fffef8]">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6f7e60]">
+            Novo pivô
+          </p>
+          <h3 className="mt-2 text-2xl font-semibold text-[#22311d]">
+            Cadastre um pivô na fazenda {farm.name}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-[#5e6d54]">
+            Informe um código único, a posição do equipamento e a lâmina em 100% para liberar o monitoramento.
+          </p>
+        </div>
+
+        <span className="rounded-full bg-[#eef4db] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#5f7b44]">
+          {getFarmLocationLabel(farm)}
+        </span>
+      </div>
+
+      <form
+        className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_180px_180px_180px] xl:grid-cols-[minmax(0,1.2fr)_220px_180px_180px_180px_auto]"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onSubmitPivot();
+        }}
+      >
+        <div>
+          <label
+            htmlFor="pivot-name"
+            className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#748264]"
+          >
+            Nome
+          </label>
+          <Input
+            id="pivot-name"
+            value={pivotForm.name}
+            onChange={(event) => onPivotFormChange({ name: event.target.value })}
+            className="mt-2 h-12 rounded-[16px]"
+            placeholder="Ex.: Pivot Leste"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="pivot-code"
+            className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#748264]"
+          >
+            Código
+          </label>
+          <Input
+            id="pivot-code"
+            value={pivotForm.code}
+            onChange={(event) => onPivotFormChange({ code: event.target.value })}
+            className="mt-2 h-12 rounded-[16px]"
+            placeholder="Ex.: pivot-leste"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="pivot-latitude"
+            className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#748264]"
+          >
+            Latitude
+          </label>
+          <Input
+            id="pivot-latitude"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            value={pivotForm.latitude}
+            onChange={(event) =>
+              onPivotFormChange({ latitude: event.target.value })
+            }
+            onBlur={(event) =>
+              onPivotFormChange({
+                latitude: normalizeCoordinateInput(event.target.value),
+              })
+            }
+            className="mt-2 h-12 rounded-[16px]"
+            placeholder="Ex.: -22,1234"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="pivot-longitude"
+            className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#748264]"
+          >
+            Longitude
+          </label>
+          <Input
+            id="pivot-longitude"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            value={pivotForm.longitude}
+            onChange={(event) =>
+              onPivotFormChange({ longitude: event.target.value })
+            }
+            onBlur={(event) =>
+              onPivotFormChange({
+                longitude: normalizeCoordinateInput(event.target.value),
+              })
+            }
+            className="mt-2 h-12 rounded-[16px]"
+            placeholder="Ex.: -45,9876"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="pivot-blade-at-100"
+            className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#748264]"
+          >
+            Lâmina 100%
+          </label>
+          <Input
+            id="pivot-blade-at-100"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            value={pivotForm.bladeAt100}
+            onChange={(event) =>
+              onPivotFormChange({ bladeAt100: event.target.value })
+            }
+            onBlur={(event) =>
+              onPivotFormChange({
+                bladeAt100: normalizeCoordinateInput(event.target.value),
+              })
+            }
+            className="mt-2 h-12 rounded-[16px]"
+            placeholder="Ex.: 10"
+          />
+        </div>
+
+        <Button
+          type="submit"
+          className="h-12 rounded-[16px] px-6 xl:self-end"
+          disabled={isSavingPivot}
+        >
+          {isSavingPivot ? 'Criando...' : 'Cadastrar pivô'}
+        </Button>
+      </form>
+
+      {pivotError ? (
+        <p className="mt-4 rounded-[18px] bg-[#fff1f1] px-4 py-3 text-sm text-[#b33c3c]">
+          {pivotError}
+        </p>
+      ) : null}
+    </Card>
   );
 }
 
@@ -1058,11 +1413,13 @@ function EmptyDashboardState({ message }: { message: string }) {
 function DashboardHero({
   currentTab,
   onLogout,
+  onBack,
   mobileContextLabel,
   quickAction,
 }: {
   currentTab: DashboardTab;
   onLogout: () => void;
+  onBack: () => void;
   mobileContextLabel?: string;
   quickAction?: {
     href: string;
@@ -1102,12 +1459,13 @@ function DashboardHero({
 
       <div className="relative px-4 pb-5 pt-5 sm:px-6 lg:px-10 lg:pb-4 lg:pt-7">
         <div className="flex items-center justify-between gap-3 lg:hidden">
-          <Link
-            href="/"
+          <button
+            type="button"
+            onClick={onBack}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/72 text-[#3b3e38] shadow-[0_12px_28px_rgba(74,70,47,0.12)] backdrop-blur-[2px]"
           >
             <ArrowLeft size={17} />
-          </Link>
+          </button>
 
           <div className="flex items-center gap-2">
             {quickAction ? (
@@ -1159,15 +1517,25 @@ function DashboardHero({
 }
 
 function DashboardSidebar({ navItems }: { navItems: DashboardNavItem[] }) {
+  const router = useRouter();
+
   return (
     <aside className="hidden min-h-screen flex-col bg-[#d2d9b4] text-[#444843] lg:flex">
       <div className="px-7 pt-6">
-        <Link
-          href="/"
+        <button
+          type="button"
+          onClick={() => {
+            if (window.history.length > 1) {
+              router.back();
+              return;
+            }
+
+            router.replace(buildDashboardHref('fazendas'));
+          }}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[#3d403a] transition hover:bg-white/35"
         >
           <ArrowLeft size={24} />
-        </Link>
+        </button>
       </div>
 
       <nav className="mt-5 border-y border-white/42">
@@ -1502,19 +1870,134 @@ function createEmptyFarmForm(): FarmFormValues {
   };
 }
 
+function createEmptyPivotForm(farm?: Farm | null): PivotFormValues {
+  return {
+    name: '',
+    code: '',
+    latitude:
+      farm?.latitude !== undefined
+        ? formatCoordinateInput(farm.latitude)
+        : '',
+    longitude:
+      farm?.longitude !== undefined
+        ? formatCoordinateInput(farm.longitude)
+        : '',
+    bladeAt100: '10',
+  };
+}
+
+function formatCoordinateInput(value: number) {
+  return value.toFixed(4).replace('.', ',');
+}
+
+function normalizeCoordinateInput(value: string) {
+  return value.trim().replace(',', '.');
+}
+
 function parseFarmForm(form: FarmFormValues) {
   const name = form.name.trim();
-  const latitude = Number(form.latitude);
-  const longitude = Number(form.longitude);
+  const latitude = Number(normalizeCoordinateInput(form.latitude));
+  const longitude = Number(normalizeCoordinateInput(form.longitude));
 
-  if (!name || Number.isNaN(latitude) || Number.isNaN(longitude)) {
-    return null;
+  if (!name) {
+    return {
+      ok: false as const,
+      error: 'Informe o nome da fazenda.',
+    };
+  }
+
+  if (Number.isNaN(latitude)) {
+    return {
+      ok: false as const,
+      error:
+        'Latitude invalida. Use graus decimais, por exemplo: -22,1234 ou -22.1234.',
+    };
+  }
+
+  if (latitude < -90 || latitude > 90) {
+    return {
+      ok: false as const,
+      error: 'Latitude deve estar entre -90 e 90 graus.',
+    };
+  }
+
+  if (Number.isNaN(longitude)) {
+    return {
+      ok: false as const,
+      error:
+        'Longitude invalida. Use graus decimais, por exemplo: -45,9876 ou -45.9876.',
+    };
+  }
+
+  if (longitude < -180 || longitude > 180) {
+    return {
+      ok: false as const,
+      error: 'Longitude deve estar entre -180 e 180 graus.',
+    };
   }
 
   return {
-    name,
-    latitude,
-    longitude,
+    ok: true as const,
+    data: {
+      name,
+      latitude,
+      longitude,
+    },
+  };
+}
+
+function parsePivotForm(form: PivotFormValues, farmId: string) {
+  const name = form.name.trim();
+  const code = form.code.trim();
+  const latitude = Number(normalizeCoordinateInput(form.latitude));
+  const longitude = Number(normalizeCoordinateInput(form.longitude));
+  const bladeAt100 = Number(normalizeCoordinateInput(form.bladeAt100));
+
+  if (!name) {
+    return {
+      ok: false as const,
+      error: 'Informe o nome do pivô.',
+    };
+  }
+
+  if (!code) {
+    return {
+      ok: false as const,
+      error: 'Informe um código único para o pivô.',
+    };
+  }
+
+  if (Number.isNaN(latitude) || latitude < -90 || latitude > 90) {
+    return {
+      ok: false as const,
+      error: 'Latitude do pivô inválida. Use um valor entre -90 e 90.',
+    };
+  }
+
+  if (Number.isNaN(longitude) || longitude < -180 || longitude > 180) {
+    return {
+      ok: false as const,
+      error: 'Longitude do pivô inválida. Use um valor entre -180 e 180.',
+    };
+  }
+
+  if (Number.isNaN(bladeAt100) || bladeAt100 <= 0) {
+    return {
+      ok: false as const,
+      error: 'Informe uma lâmina válida em 100%, maior que zero.',
+    };
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      farmId,
+      name,
+      code,
+      latitude,
+      longitude,
+      bladeAt100,
+    },
   };
 }
 
@@ -1522,6 +2005,33 @@ function sortFarmRecords(farms: FarmRecord[]) {
   return [...farms].sort((firstFarm, secondFarm) =>
     firstFarm.name.localeCompare(secondFarm.name, 'pt-BR'),
   );
+}
+
+function sortPivots(pivots: Pivot[]) {
+  return [...pivots].sort((firstPivot, secondPivot) =>
+    firstPivot.name.localeCompare(secondPivot.name, 'pt-BR'),
+  );
+}
+
+function sortFarmPivotSummaries(pivots: FarmPivotSummary[]) {
+  return [...pivots].sort((firstPivot, secondPivot) =>
+    firstPivot.name.localeCompare(secondPivot.name, 'pt-BR'),
+  );
+}
+
+function normalizeFarmRecord(
+  farm: FarmRecord | (Farm & { pivots?: FarmPivotSummary[] | null }),
+): FarmRecord {
+  return {
+    ...farm,
+    pivots: Array.isArray(farm.pivots) ? farm.pivots : [],
+  };
+}
+
+function normalizeFarmRecords(
+  farms: Array<FarmRecord | (Farm & { pivots?: FarmPivotSummary[] | null })>,
+) {
+  return farms.map((farm) => normalizeFarmRecord(farm));
 }
 
 function getFarmLocationLabel(farm: Farm) {

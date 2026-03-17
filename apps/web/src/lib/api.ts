@@ -141,6 +141,27 @@ export async function deleteFarm(id: string, token: string) {
   );
 }
 
+export async function createPivot(
+  token: string,
+  payload: {
+    farmId: string;
+    name: string;
+    code: string;
+    latitude: number;
+    longitude: number;
+    bladeAt100: number;
+  },
+) {
+  return apiFetch<Pivot>(
+    '/pivots',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
 export async function getPivots(token: string) {
   return apiFetch<Pivot[]>('/pivots', {}, token);
 }
