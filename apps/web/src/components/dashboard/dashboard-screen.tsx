@@ -35,6 +35,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { WeatherCard } from '@/components/weather/weather-card';
 import {
+  ApiError,
   createPivot,
   createFarm,
   deleteFarm,
@@ -385,7 +386,16 @@ export function DashboardScreen({
         router.replace(buildDashboardHref('fazendas'));
       }
     } catch (deleteError) {
-      setFarmError((deleteError as Error).message);
+      if (
+        deleteError instanceof ApiError &&
+        deleteError.status === 404
+      ) {
+        setFarmError(
+          'A API publicada ainda nao suporta exclusao de fazenda. E preciso redeployar o backend atualizado.',
+        );
+      } else {
+        setFarmError((deleteError as Error).message);
+      }
     } finally {
       setIsDeletingFarmId(null);
     }
@@ -926,7 +936,7 @@ function FarmEditorCard({
       </div>
 
       <form
-        className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_180px_180px_auto] lg:items-end"
+        className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_180px_180px] xl:grid-cols-[minmax(0,1.2fr)_180px_180px_auto] xl:items-end"
         onSubmit={(event) => {
           event.preventDefault();
           void onSubmitFarm();
@@ -972,9 +982,6 @@ function FarmEditorCard({
             className="mt-2 h-12 rounded-[16px]"
             placeholder="Ex.: -22,1234"
           />
-          <p className="mt-2 text-xs leading-5 text-[#75826b]">
-            Use graus decimais. No Brasil a latitude costuma ser negativa.
-          </p>
         </div>
 
         <div>
@@ -1001,14 +1008,11 @@ function FarmEditorCard({
             className="mt-2 h-12 rounded-[16px]"
             placeholder="Ex.: -45,9876"
           />
-          <p className="mt-2 text-xs leading-5 text-[#75826b]">
-            Pode digitar com virgula ou ponto. A longitude do Brasil tambem costuma ser negativa.
-          </p>
         </div>
 
         <Button
           type="submit"
-          className="h-12 rounded-[16px] px-6"
+          className="h-12 rounded-[16px] px-6 xl:self-end"
           disabled={isSavingFarm}
         >
           {isSavingFarm
@@ -1020,6 +1024,11 @@ function FarmEditorCard({
               : 'Cadastrar fazenda'}
         </Button>
       </form>
+
+      <p className="mt-3 text-xs leading-5 text-[#75826b]">
+        Use graus decimais nas coordenadas. Voce pode digitar com virgula ou ponto, por exemplo:
+        latitude `-22,1234` e longitude `-45,9876`.
+      </p>
 
       {farmError ? (
         <p className="mt-4 rounded-[18px] bg-[#fff1f1] px-4 py-3 text-sm text-[#b33c3c]">
