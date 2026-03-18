@@ -13,7 +13,7 @@ export default function LoginPage() {
   const demoEmail = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? '';
   const demoPassword = process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? '';
   const hasDemoCredentials = Boolean(demoEmail && demoPassword);
-  const { login } = useAuth();
+  const { isReady, login, token } = useAuth();
   const router = useRouter();
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
@@ -23,6 +23,12 @@ export default function LoginPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const canSubmit = Boolean(email.trim() && password.trim());
+
+  useEffect(() => {
+    if (isReady && token) {
+      router.replace('/dashboard?tab=fazendas');
+    }
+  }, [isReady, token, router]);
 
   useEffect(() => {
     function syncAutofilledValues() {
@@ -84,6 +90,10 @@ export default function LoginPage() {
     setNotice(
       'As configuracoes deste ambiente sao definidas no deploy do frontend e da API.',
     );
+  }
+
+  if (isReady && token) {
+    return null;
   }
 
   return (

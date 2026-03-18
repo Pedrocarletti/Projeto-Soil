@@ -2,7 +2,6 @@
 
 import {
   createContext,
-  startTransition,
   useContext,
   useEffect,
   useMemo,
@@ -34,9 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     function syncSessionFromStorage() {
-      startTransition(() => {
-        setSession(readStoredSession());
-      });
+      setSession(readStoredSession());
     }
 
     window.addEventListener(SESSION_UPDATED_EVENT, syncSessionFromStorage);
@@ -58,9 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        startTransition(() => {
-          setSession(parsedSession);
-        });
+        setSession(parsedSession);
         setIsReady(true);
 
         const profile = await getProfile(parsedSession.token);
@@ -72,9 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
 
         writeStoredSession(nextSession);
-        startTransition(() => {
-          setSession(nextSession);
-        });
+        setSession(nextSession);
       } catch (error) {
         const isApiAuthError =
           error instanceof ApiError &&
@@ -82,9 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!(error instanceof ApiError) || isApiAuthError) {
           clearStoredSession();
-          startTransition(() => {
-            setSession(null);
-          });
+          setSession(null);
         }
 
         setIsReady(true);
@@ -103,9 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     writeStoredSession(nextSession);
-    startTransition(() => {
-      setSession(nextSession);
-    });
+    setSession(nextSession);
   }
 
   function logout() {
