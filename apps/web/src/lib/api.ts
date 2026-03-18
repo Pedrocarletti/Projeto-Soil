@@ -6,6 +6,11 @@ import type {
   User,
   WeatherResponse,
 } from '@/types/domain';
+import {
+  clearStoredSession,
+  readStoredSession,
+  writeStoredSession,
+} from '@/lib/session';
 
 const LOCAL_API_URL = 'http://localhost:33001/api';
 const LOCAL_WS_URL = 'http://localhost:33001/realtime';
@@ -25,6 +30,8 @@ export class ApiError extends Error {
 export function getWsUrl() {
   return WS_URL || null;
 }
+
+let refreshPromise: Promise<string | null> | null = null;
 
 function getApiUrl() {
   if (API_URL) {
@@ -51,6 +58,51 @@ async function parseResponse<T>(response: Response) {
   return (await response.json()) as T;
 }
 
+async function refreshSessionRequest(refreshToken: string) {
+  const response = await fetch(`${getApiUrl()}/auth/refresh`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ refreshToken }),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    clearStoredSession();
+    return null;
+  }
+
+  const payload = (await response.json()) as LoginResponse;
+  writeStoredSession({
+    token: payload.accessToken,
+    refreshToken: payload.refreshToken,
+    user: payload.user,
+  });
+
+  return payload.accessToken;
+}
+
+async function refreshAccessToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  if (!refreshPromise) {
+    const session = readStoredSession();
+
+    if (!session?.refreshToken) {
+      return null;
+    }
+
+    refreshPromise = refreshSessionRequest(session.refreshToken).finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
@@ -66,11 +118,34 @@ export async function apiFetch<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${getApiUrl()}${path}`, {
+  const url = `${getApiUrl()}${path}`;
+  const response = await fetch(url, {
     ...options,
     headers,
     cache: 'no-store',
   });
+
+  if (response.status === 401 && token) {
+    const refreshedToken = await refreshAccessToken();
+
+    if (refreshedToken && refreshedToken !== token) {
+      const retryHeaders = new Headers(options.headers);
+
+      if (!retryHeaders.has('Content-Type') && options.body) {
+        retryHeaders.set('Content-Type', 'application/json');
+      }
+
+      retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
+
+      const retryResponse = await fetch(url, {
+        ...options,
+        headers: retryHeaders,
+        cache: 'no-store',
+      });
+
+      return parseResponse<T>(retryResponse);
+    }
+  }
 
   return parseResponse<T>(response);
 }

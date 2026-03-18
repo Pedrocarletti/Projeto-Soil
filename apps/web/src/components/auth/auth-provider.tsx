@@ -9,14 +9,14 @@ import {
   useState,
 } from 'react';
 import { ApiError, getProfile, loginRequest } from '@/lib/api';
+import {
+  clearStoredSession,
+  readStoredSession,
+  SESSION_UPDATED_EVENT,
+  type StoredSession,
+  writeStoredSession,
+} from '@/lib/session';
 import type { User } from '@/types/domain';
-
-const STORAGE_KEY = 'soil.session';
-
-interface SessionState {
-  token: string;
-  user: User;
-}
 
 interface AuthContextValue {
   isReady: boolean;
@@ -29,40 +29,49 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<SessionState | null>(null);
+  const [session, setSession] = useState<StoredSession | null>(null);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    async function hydrate() {
-      const rawSession = window.localStorage.getItem(STORAGE_KEY);
+    function syncSessionFromStorage() {
+      startTransition(() => {
+        setSession(readStoredSession());
+      });
+    }
 
-      if (!rawSession) {
+    window.addEventListener(SESSION_UPDATED_EVENT, syncSessionFromStorage);
+    window.addEventListener('storage', syncSessionFromStorage);
+
+    return () => {
+      window.removeEventListener(SESSION_UPDATED_EVENT, syncSessionFromStorage);
+      window.removeEventListener('storage', syncSessionFromStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    async function hydrate() {
+      const parsedSession = readStoredSession();
+
+      if (!parsedSession) {
         setIsReady(true);
         return;
       }
 
       try {
-        const parsedSession = JSON.parse(rawSession) as SessionState;
-
-        if (
-          typeof parsedSession?.token !== 'string' ||
-          !parsedSession.user
-        ) {
-          throw new Error('Sessao invalida.');
-        }
-
         startTransition(() => {
           setSession(parsedSession);
         });
         setIsReady(true);
 
         const profile = await getProfile(parsedSession.token);
+        const latestSession = readStoredSession() ?? parsedSession;
         const nextSession = {
-          token: parsedSession.token,
+          token: latestSession.token,
+          refreshToken: latestSession.refreshToken,
           user: profile,
         };
 
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSession));
+        writeStoredSession(nextSession);
         startTransition(() => {
           setSession(nextSession);
         });
@@ -72,7 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           (error.status === 401 || error.status === 403);
 
         if (!(error instanceof ApiError) || isApiAuthError) {
-          window.localStorage.removeItem(STORAGE_KEY);
+          clearStoredSession();
           startTransition(() => {
             setSession(null);
           });
@@ -89,17 +98,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await loginRequest(email, password);
     const nextSession = {
       token: response.accessToken,
+      refreshToken: response.refreshToken,
       user: response.user,
     };
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSession));
+    writeStoredSession(nextSession);
     startTransition(() => {
       setSession(nextSession);
     });
   }
 
   function logout() {
-    window.localStorage.removeItem(STORAGE_KEY);
+    clearStoredSession();
     setSession(null);
   }
 

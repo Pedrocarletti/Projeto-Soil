@@ -420,7 +420,7 @@ export function DashboardScreen({
       const savedPivot = await createPivot(token, parsedPivotForm.data);
 
       setPivots((currentPivots) =>
-        sortPivots([...currentPivots, savedPivot]),
+        sortPivots(upsertById(currentPivots, savedPivot)),
       );
       setFarms((currentFarms) =>
         sortFarmRecords(
@@ -428,14 +428,13 @@ export function DashboardScreen({
             farm.id === selectedFarm.id
               ? {
                   ...farm,
-                  pivots: sortFarmPivotSummaries([
-                    ...farm.pivots,
-                    {
+                  pivots: sortFarmPivotSummaries(
+                    upsertById(farm.pivots, {
                       id: savedPivot.id,
                       name: savedPivot.name,
                       code: savedPivot.code,
-                    },
-                  ]),
+                    }),
+                  ),
                 }
               : farm,
           ),
@@ -2014,6 +2013,12 @@ function sortFarmRecords(farms: FarmRecord[]) {
   return [...farms].sort((firstFarm, secondFarm) =>
     firstFarm.name.localeCompare(secondFarm.name, 'pt-BR'),
   );
+}
+
+function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
+  return items.some((item) => item.id === nextItem.id)
+    ? items.map((item) => (item.id === nextItem.id ? nextItem : item))
+    : [...items, nextItem];
 }
 
 function sortPivots(pivots: Pivot[]) {
