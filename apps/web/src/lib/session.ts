@@ -7,7 +7,7 @@ export const SESSION_UPDATED_EVENT = 'soil:session-updated';
 
 export interface StoredSession {
   token: string;
-  refreshToken: string;
+  refreshToken: string | null;
   user: User;
 }
 
@@ -25,11 +25,7 @@ export function readStoredSession() {
   try {
     const parsedSession = JSON.parse(rawSession) as StoredSession;
 
-    if (
-      typeof parsedSession?.token !== 'string' ||
-      typeof parsedSession?.refreshToken !== 'string' ||
-      !parsedSession.user
-    ) {
+    if (typeof parsedSession?.token !== 'string' || !parsedSession.user) {
       return null;
     }
 
